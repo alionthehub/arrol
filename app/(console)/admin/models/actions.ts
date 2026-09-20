@@ -9,15 +9,23 @@ import {
 } from "@/lib/model-types";
 import {
   createModelRow,
+  getModelById,
   toggleModelRow,
   updateModelRow,
   type ModelInput,
 } from "@/lib/models";
+import { runAgent } from "@/lib/agent/loop";
+import { requireSessionAction } from "@/lib/session";
 
 export type ModelFormState = {
   status: "idle" | "error" | "success";
   message?: string;
   token?: string;
+};
+
+export type ConnectionTestResult = {
+  ok: boolean;
+  detail: string;
 };
 
 const MODELS_PATH = "/admin/models";
@@ -101,6 +109,7 @@ export async function createModel(
   _prev: ModelFormState,
   formData: FormData,
 ): Promise<ModelFormState> {
+  await requireSessionAction();
   try {
     await createModelRow(parseModelInput(formData));
   } catch (error) {
@@ -117,6 +126,7 @@ export async function updateModel(
   _prev: ModelFormState,
   formData: FormData,
 ): Promise<ModelFormState> {
+  await requireSessionAction();
   try {
     const updated = await updateModelRow(parseId(formData), parseModelInput(formData));
     if (!updated) {
@@ -133,6 +143,42 @@ export async function updateModel(
 }
 
 export async function toggleModelEnabled(formData: FormData) {
+  await requireSessionAction();
   await toggleModelRow(parseId(formData));
   revalidatePath(MODELS_PATH);
+}
+
+export async function testModelConnection(
+  id: number,
+): Promise<ConnectionTestResult> {
+  await requireSessionAction();
+  if (!Number.isInteger(id) || id <= 0) {
+    return { ok: false, detail: "Invalid model id." };
+  }
+
+  const model = await getModelById(id);
+  if (!model) {
+    return { ok: false, detail: "Model not found." };
+  }
+
+  try {
+    const result = await runAgent({
+      model: { ...model, enabled: true },
+      history: [],
+      userMessage: "Call get_current_time, then reply with ONLINE.",
+    });
+    if (result.toolCalls.some((call) => call.isError)) {
+      const failed = result.toolCalls.find((call) => call.isError);
+      return { ok: false, detail: failed?.result ?? "Tool call failed." };
+    }
+    return {
+      ok: true,
+      detail: result.text.slice(0, 240) || "Tool call succeeded.",
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      detail: error instanceof Error ? error.message : "Connection failed.",
+    };
+  }
 }

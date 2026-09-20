@@ -2,17 +2,20 @@
 
 import { runAgent, type ConversationTurn, type ToolInvocation } from "@/lib/agent/loop";
 import { getModelById } from "@/lib/models";
+import { requireSessionAction } from "@/lib/session";
 
-export type ChatActionResult = {
-  ok: true;
-  text: string;
-  toolCalls: ToolInvocation[];
-  iterations: number;
-  hitIterationCap: boolean;
-} | {
-  ok: false;
-  error: string;
-};
+export type ChatActionResult =
+  | {
+      ok: true;
+      text: string;
+      toolCalls: ToolInvocation[];
+      iterations: number;
+      hitIterationCap: boolean;
+    }
+  | {
+      ok: false;
+      error: string;
+    };
 
 export type ChatHistoryItem = {
   role: "user" | "assistant";
@@ -24,6 +27,8 @@ export async function sendChatMessage(input: {
   message: string;
   history: ChatHistoryItem[];
 }): Promise<ChatActionResult> {
+  await requireSessionAction();
+
   const message = input.message.trim();
   if (!message) {
     return { ok: false, error: "Enter a message." };
