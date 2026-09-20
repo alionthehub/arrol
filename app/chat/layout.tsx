@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { SiteHeader } from "@/components/site-header";
 
-export default function AdminLayout({ children }: { children: ReactNode }) {
+export default function ChatLayout({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-full bg-zinc-50 text-zinc-950 dark:bg-zinc-950 dark:text-zinc-50">
       <SiteHeader />

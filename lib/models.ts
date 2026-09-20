@@ -54,14 +54,38 @@ export function assertKeyEnvVar(value: string) {
   }
 }
 
+const MODEL_COLUMNS = `id, display_name, provider_type, base_url, model_id, key_env_var, allowed_tasks, enabled`;
+
 export async function listModels(): Promise<Model[]> {
   await ensureModelsTable();
   const { rows } = await query<Model>(
-    `SELECT id, display_name, provider_type, base_url, model_id, key_env_var, allowed_tasks, enabled
+    `SELECT ${MODEL_COLUMNS}
      FROM models
      ORDER BY display_name ASC, id ASC`,
   );
   return rows;
+}
+
+export async function listEnabledModels(): Promise<Model[]> {
+  await ensureModelsTable();
+  const { rows } = await query<Model>(
+    `SELECT ${MODEL_COLUMNS}
+     FROM models
+     WHERE enabled = TRUE
+     ORDER BY display_name ASC, id ASC`,
+  );
+  return rows;
+}
+
+export async function getModelById(id: number): Promise<Model | null> {
+  await ensureModelsTable();
+  const { rows } = await query<Model>(
+    `SELECT ${MODEL_COLUMNS}
+     FROM models
+     WHERE id = $1`,
+    [id],
+  );
+  return rows[0] ?? null;
 }
 
 export async function createModelRow(input: ModelInput): Promise<Model> {
