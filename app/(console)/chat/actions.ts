@@ -11,6 +11,7 @@ export type ChatActionResult =
       toolCalls: ToolInvocation[];
       iterations: number;
       hitIterationCap: boolean;
+      awaitingConfirmation: boolean;
     }
   | {
       ok: false;
@@ -63,6 +64,7 @@ export async function sendChatMessage(input: {
       toolCalls: result.toolCalls,
       iterations: result.iterations,
       hitIterationCap: result.hitIterationCap,
+      awaitingConfirmation: result.awaitingConfirmation,
     };
   } catch (error) {
     return {

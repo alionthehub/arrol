@@ -1,6 +1,6 @@
 "use client";
 
-import { TerminalError } from "@/components/terminal-status";
+import { HudFault } from "@/components/hud/chrome";
 
 export default function ModelsError({
   error,
@@ -13,7 +13,7 @@ export default function ModelsError({
 
   return (
     <div className="p-4">
-      <TerminalError
+      <HudFault
         title="MODELS FAULT"
         message={
           missingUrl

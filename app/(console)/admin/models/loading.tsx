@@ -1,9 +1,5 @@
-import { TerminalLoading } from "@/components/terminal-status";
+import { HudLoading } from "@/components/hud/chrome";
 
 export default function Loading() {
-  return (
-    <div className="p-4">
-      <TerminalLoading label="LOADING MODELS…" />
-    </div>
-  );
+  return <HudLoading label="LOADING MODELS…" />;
 }

@@ -24,7 +24,7 @@ export function WallDisplay({
   const [sweep, setSweep] = useState(false);
 
   useEffect(() => {
-    let raf = requestAnimationFrame(() => setNow(new Date()));
+    const raf = requestAnimationFrame(() => setNow(new Date()));
     const tick = window.setInterval(() => setNow(new Date()), 1000);
     const refresh = window.setInterval(() => {
       setSweep(true);

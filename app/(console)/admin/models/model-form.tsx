@@ -7,8 +7,8 @@ import {
   updateModel,
   type ModelFormState,
 } from "./actions";
+import { HudFrame } from "@/components/hud/chrome";
 import { PROVIDER_TYPES, type Model } from "@/lib/model-types";
-import { TerminalFrame } from "@/components/terminal";
 
 const initialState: ModelFormState = { status: "idle" };
 
@@ -20,26 +20,24 @@ export function ModelForm({ model }: { model?: Model | null }) {
   );
 
   return (
-    <TerminalFrame title={isEdit ? `EDIT ${model?.display_name}` : "ADD MODEL"}>
+    <HudFrame title={isEdit ? `EDIT ${model?.display_name}` : "ADD MODEL"}>
       <form action={formAction} className="grid gap-4">
         {model ? <input type="hidden" name="id" value={model.id} /> : null}
 
         <div className="grid gap-4 sm:grid-cols-2">
-          <label className="text-xs tracking-widest">
-            DISPLAY_NAME
+          <Field label="DISPLAY_NAME">
             <input
-              className="field"
+              className="hud-field"
               name="display_name"
               defaultValue={model?.display_name}
               required
               placeholder="Claude Sonnet"
             />
-          </label>
+          </Field>
 
-          <label className="text-xs tracking-widest">
-            PROVIDER_TYPE
+          <Field label="PROVIDER_TYPE">
             <select
-              className="field"
+              className="hud-field"
               name="provider_type"
               defaultValue={model?.provider_type ?? "anthropic"}
               required
@@ -50,34 +48,31 @@ export function ModelForm({ model }: { model?: Model | null }) {
                 </option>
               ))}
             </select>
-          </label>
+          </Field>
 
-          <label className="text-xs tracking-widest">
-            BASE_URL
+          <Field label="BASE_URL">
             <input
-              className="field"
+              className="hud-field"
               name="base_url"
               type="url"
               defaultValue={model?.base_url ?? ""}
               placeholder="https://api.anthropic.com"
             />
-          </label>
+          </Field>
 
-          <label className="text-xs tracking-widest">
-            MODEL_ID
+          <Field label="MODEL_ID">
             <input
-              className="field"
+              className="hud-field"
               name="model_id"
               defaultValue={model?.model_id}
               required
               placeholder="claude-sonnet-4-5"
             />
-          </label>
+          </Field>
 
-          <label className="text-xs tracking-widest">
-            KEY_ENV_VAR
+          <Field label="KEY_ENV_VAR">
             <input
-              className="field text-ice"
+              className="hud-field"
               name="key_env_var"
               defaultValue={model?.key_env_var}
               required
@@ -90,46 +85,63 @@ export function ModelForm({ model }: { model?: Model | null }) {
             <span className="mt-1 block text-[10px] font-normal tracking-widest text-amber">
               VARIABLE NAME ONLY — DO NOT PASTE AN API KEY
             </span>
-          </label>
+          </Field>
 
-          <label className="text-xs tracking-widest">
-            ALLOWED_TASKS
+          <Field label="ALLOWED_TASKS">
             <input
-              className="field"
+              className="hud-field"
               name="allowed_tasks"
               defaultValue={model?.allowed_tasks.join(", ") ?? ""}
               placeholder="chat, today, wall"
             />
-          </label>
+          </Field>
         </div>
 
-        <label className="flex items-center gap-2 text-xs tracking-widest">
+        <label className="hud-mono flex items-center gap-2 text-[10px] tracking-[0.2em] text-cyan/70">
           <input
             type="checkbox"
             name="enabled"
             defaultChecked={model?.enabled ?? true}
-            className="size-4 accent-phosphor"
+            className="hud-check"
           />
           ENABLED
         </label>
 
         {state.status === "error" ? (
-          <p className="text-sm text-deny" role="alert">
+          <p className="hud-mono text-sm text-stale" role="alert">
             ! {state.message}
           </p>
         ) : null}
 
         <div className="flex items-center gap-3">
-          <button type="submit" disabled={pending} className="term-btn">
+          <button type="submit" disabled={pending} className="hud-btn">
             {pending ? "WRITING…" : isEdit ? "SAVE" : "ADD MODEL"}
           </button>
           {isEdit ? (
-            <Link href="/admin/models" className="text-xs tracking-widest text-ice">
+            <Link
+              href="/admin/models"
+              className="hud-mono text-[10px] tracking-[0.2em] text-cyan/70 hover:text-cyan"
+            >
               CANCEL
             </Link>
           ) : null}
         </div>
       </form>
-    </TerminalFrame>
+    </HudFrame>
+  );
+}
+
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="hud-mono text-[10px] tracking-[0.2em] text-cyan/70">
+      {label}
+      {children}
+    </label>
   );
 }

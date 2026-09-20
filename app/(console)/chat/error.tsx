@@ -1,6 +1,6 @@
 "use client";
 
-import { TerminalError } from "@/components/terminal-status";
+import { HudFault } from "@/components/hud/chrome";
 
 export default function ChatError({
   error,
@@ -11,11 +11,7 @@ export default function ChatError({
 }) {
   return (
     <div className="p-4">
-      <TerminalError
-        title="CHAT FAULT"
-        message={error.message}
-        onRetry={reset}
-      />
+      <HudFault title="CORE FAULT" message={error.message} onRetry={reset} />
     </div>
   );
 }

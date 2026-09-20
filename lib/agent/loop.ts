@@ -9,8 +9,15 @@ import { KEY_ENV_VAR_PATTERN, type Model } from "@/lib/model-types";
 
 export const MAX_AGENT_ITERATIONS = 10;
 
-const SYSTEM_PROMPT =
-  "You are a helpful assistant. Use tools when they help you answer. When you have a final answer, respond to the user without calling tools.";
+const SYSTEM_PROMPT = `You are Arrol. Operations console. Dry. Blunt. Short sentences.
+
+Never flatter. Never pad. Do not say certainly, of course, happy to, great question, absolutely, or sure. Do not open with filler.
+
+If something is overdue, late, stale, or waiting, say so straight. Name it. Do not soften it.
+
+Prefer tools over guessing. For today's run, diary, or schedule, call get_todays_schedule. For unpaid, stale, or waiting work, call get_outstanding and get_on_hold. Use the other ops tools when they match. After tools return, give a short spoken answer.
+
+Anything that sends, posts, emails, writes, updates, or otherwise changes an external system: call send_or_write. Do not claim it went out. Read the exact draft back. Wait for a spoken yes. Only a clear yes means go. No, wait, cancel, or anything else means hold.`;
 
 export type ConversationTurn = {
   role: "user" | "assistant";
@@ -29,6 +36,7 @@ export type AgentRunResult = {
   toolCalls: ToolInvocation[];
   iterations: number;
   hitIterationCap: boolean;
+  awaitingConfirmation: boolean;
 };
 
 function readApiKey(model: Model): string | undefined {
@@ -90,12 +98,15 @@ export async function runAgent(options: {
         toolCalls,
         iterations: iteration,
         hitIterationCap: false,
+        awaitingConfirmation: awaitingConfirmation(toolCalls),
       };
     }
 
     const resultParts = [];
     for (const call of calls) {
-      const executed = await executeTool(call.name, call.arguments);
+      const executed = await executeTool(call.name, call.arguments, {
+        userMessage: options.userMessage,
+      });
       toolCalls.push({
         name: call.name,
         arguments: call.arguments,
@@ -120,6 +131,7 @@ export async function runAgent(options: {
         toolCalls,
         iterations: iteration,
         hitIterationCap: true,
+        awaitingConfirmation: awaitingConfirmation(toolCalls),
       };
     }
   }
@@ -129,5 +141,17 @@ export async function runAgent(options: {
     toolCalls,
     iterations: MAX_AGENT_ITERATIONS,
     hitIterationCap: true,
+    awaitingConfirmation: awaitingConfirmation(toolCalls),
   };
+}
+
+function awaitingConfirmation(toolCalls: ToolInvocation[]) {
+  return toolCalls.some((call) => {
+    try {
+      const parsed = JSON.parse(call.result) as { status?: unknown };
+      return parsed.status === "awaiting_confirmation";
+    } catch {
+      return false;
+    }
+  });
 }

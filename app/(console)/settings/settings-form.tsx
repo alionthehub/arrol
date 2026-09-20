@@ -6,7 +6,8 @@ import {
   saveSettings,
   type SettingsFormState,
 } from "./actions";
-import { TerminalFrame, TypeText, useGlitch } from "@/components/terminal";
+import { HudFrame } from "@/components/hud/chrome";
+import { MicPicker } from "@/components/hud/mic-picker";
 import { TASK_KEYS, TASK_LABELS } from "@/lib/tasks";
 import { TIMEZONES } from "@/lib/timezones";
 import type { AppSettings } from "@/lib/settings";
@@ -21,42 +22,34 @@ export function SettingsForm({
   models: Array<{ id: number; display_name: string }>;
 }) {
   const [state, formAction, pending] = useActionState(saveSettings, initialState);
-  const [crtOn, setCrtOn] = useState(settings.crt_effects);
-  const { glitchClass, trigger } = useGlitch();
+  const [fxOn, setFxOn] = useState(settings.crt_effects);
 
   useEffect(() => {
-    document.documentElement.dataset.crt = crtOn ? "on" : "off";
-  }, [crtOn]);
-
-  useEffect(() => {
-    if (state.status === "saved") trigger();
-  }, [state, trigger]);
+    document.documentElement.dataset.fx = fxOn ? "on" : "off";
+    document.documentElement.dataset.crt = fxOn ? "on" : "off";
+  }, [fxOn]);
 
   return (
-    <div className={`space-y-4 ${glitchClass}`}>
-      <TypeText
-        as="h1"
-        className="crt-aberrate crt-glow text-2xl tracking-[0.2em]"
-        text="SETTINGS"
-      />
+    <div className="space-y-4">
+      <h1 className="hud-mono text-xl tracking-[0.28em] text-cyan">CFG</h1>
 
       <form action={formAction} className="space-y-4">
-        <TerminalFrame title="IDENTITY">
+        <HudFrame title="IDENTITY">
           <div className="grid gap-4 sm:grid-cols-2">
-            <label className="text-xs tracking-widest">
+            <label className="hud-mono text-[10px] tracking-[0.2em] text-cyan/70">
               NAME
               <input
-                className="field"
+                className="hud-field"
                 name="display_name"
                 defaultValue={settings.display_name}
                 required
                 autoComplete="nickname"
               />
             </label>
-            <label className="text-xs tracking-widest">
+            <label className="hud-mono text-[10px] tracking-[0.2em] text-cyan/70">
               TIMEZONE
               <select
-                className="field"
+                className="hud-field"
                 name="timezone"
                 defaultValue={settings.timezone}
                 required
@@ -72,15 +65,22 @@ export function SettingsForm({
               </select>
             </label>
           </div>
-        </TerminalFrame>
+        </HudFrame>
 
-        <TerminalFrame title="TASK ROUTING">
+        <HudFrame title="MICROPHONE">
+          <MicPicker />
+        </HudFrame>
+
+        <HudFrame title="TASK ROUTING">
           <div className="grid gap-4">
             {TASK_KEYS.map((key) => (
-              <label key={key} className="text-xs tracking-widest">
+              <label
+                key={key}
+                className="hud-mono text-[10px] tracking-[0.2em] text-cyan/70"
+              >
                 {TASK_LABELS[key]}
                 <select
-                  className="field"
+                  className="hud-field"
                   name={`task_${key}`}
                   defaultValue={settings.task_models[key] ?? "none"}
                 >
@@ -94,58 +94,55 @@ export function SettingsForm({
               </label>
             ))}
             {models.length === 0 ? (
-              <p className="text-xs text-phosphor-dim">NO ENABLED MODELS</p>
+              <p className="hud-mono text-[10px] tracking-widest text-cyan/45">
+                NO ENABLED MODELS
+              </p>
             ) : null}
           </div>
-        </TerminalFrame>
+        </HudFrame>
 
-        <TerminalFrame title="DISPLAY" tone="ice">
+        <HudFrame title="DISPLAY">
           <fieldset>
-            <legend className="text-xs tracking-widest">CRT EFFECTS</legend>
-            <p className="mt-1 text-[11px] text-phosphor-dim">
-              SCANLINES, FLICKER, VIGNETTE, TYPE-IN. DEFAULT ON.
+            <legend className="hud-mono text-[10px] tracking-[0.2em] text-cyan/70">
+              HUD EFFECTS
+            </legend>
+            <p className="mt-1 font-light text-[13px] text-ink/70">
+              Hex mesh, scanlines, vignette, ring motion. Default on.
             </p>
-            <label className="mt-3 flex cursor-pointer items-center gap-3 text-sm">
+            <label className="mt-3 flex cursor-pointer items-center gap-3">
               <input
                 type="checkbox"
                 name="crt_effects"
-                checked={crtOn}
-                onChange={(event) => {
-                  setCrtOn(event.target.checked);
-                  trigger();
-                }}
-                className="sr-only"
+                checked={fxOn}
+                onChange={(event) => setFxOn(event.target.checked)}
+                className="hud-check"
               />
-              <span
-                className={crtOn ? "crt-glow text-phosphor" : "text-phosphor-dim"}
-                aria-hidden="true"
-              >
-                [{crtOn ? "ON" : "OFF"}]
+              <span className="hud-mono text-[11px] tracking-[0.2em] text-cyan">
+                {fxOn ? "ATMOSPHERE ON" : "ATMOSPHERE OFF"}
               </span>
-              <span>{crtOn ? "PHOSPHOR ACTIVE" : "FLAT TERMINAL"}</span>
             </label>
           </fieldset>
-        </TerminalFrame>
+        </HudFrame>
 
         {state.status === "error" ? (
-          <p className="text-sm text-deny" role="alert">
+          <p className="hud-mono text-sm text-stale" role="alert">
             ! {state.message}
           </p>
         ) : null}
         {state.status === "saved" ? (
-          <p className="text-sm text-phosphor" role="status">
+          <p className="hud-mono text-sm text-ok" role="status">
             {state.message}
           </p>
         ) : null}
 
-        <button type="submit" className="term-btn" disabled={pending}>
+        <button type="submit" className="hud-btn" disabled={pending}>
           {pending ? "WRITING…" : "WRITE SETTINGS"}
         </button>
       </form>
 
       <form action={lockTerminal}>
-        <button type="submit" className="term-btn term-btn-ice">
-          LOCK TERMINAL
+        <button type="submit" className="hud-btn">
+          LOCK CONSOLE
         </button>
       </form>
     </div>

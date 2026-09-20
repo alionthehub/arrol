@@ -1,8 +1,8 @@
-import { ConsoleShell } from "@/components/status-bars";
+import { HudShell } from "@/components/hud/shell";
+import { HudTelemetryProvider } from "@/components/hud/telemetry";
 import { listEnabledModels } from "@/lib/models";
 import { requireSession } from "@/lib/session";
 import { getSettings } from "@/lib/settings";
-import { PROCESS_STARTED_AT } from "@/lib/uptime";
 import type { ReactNode } from "react";
 
 export default async function ConsoleLayout({
@@ -12,9 +12,8 @@ export default async function ConsoleLayout({
 }) {
   await requireSession();
 
-  let operator = "OPERATOR";
   let timezone = "Europe/London";
-  let crtOn = true;
+  let fxOn = true;
   let modelLabel = "NONE";
   let linkUp = true;
 
@@ -23,9 +22,8 @@ export default async function ConsoleLayout({
       getSettings(),
       listEnabledModels(),
     ]);
-    operator = settings.display_name;
     timezone = settings.timezone;
-    crtOn = settings.crt_effects;
+    fxOn = settings.crt_effects;
     const chatId = settings.task_models.chat;
     const assigned = chatId
       ? models.find((model) => model.id === chatId)
@@ -36,15 +34,15 @@ export default async function ConsoleLayout({
   }
 
   return (
-    <ConsoleShell
-      startedAt={PROCESS_STARTED_AT}
-      timezone={timezone}
-      operator={operator}
-      modelLabel={modelLabel}
-      linkUp={linkUp}
-      crtOn={crtOn}
-    >
-      {children}
-    </ConsoleShell>
+    <HudTelemetryProvider>
+      <HudShell
+        timezone={timezone}
+        modelLabel={modelLabel}
+        linkUp={linkUp}
+        fxOn={fxOn}
+      >
+        {children}
+      </HudShell>
+    </HudTelemetryProvider>
   );
 }

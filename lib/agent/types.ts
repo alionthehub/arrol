@@ -29,6 +29,8 @@ export type ToolDefinition = {
   name: string;
   description: string;
   parameters: Record<string, unknown>;
+  /** If true, executeTool blocks until the latest user message is a clear yes. */
+  mutates?: boolean;
 };
 
 export type StopReason = "end_turn" | "tool_use" | "max_tokens" | "other";

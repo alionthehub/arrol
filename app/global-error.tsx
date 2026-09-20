@@ -13,24 +13,25 @@ export default function GlobalError({
         style={{
           margin: 0,
           minHeight: "100dvh",
-          background: "#000",
-          color: "#3dff6e",
-          fontFamily: "ui-monospace, monospace",
+          background: "#01060b",
+          color: "#4ae3ff",
+          fontFamily: '"Share Tech Mono", ui-monospace, monospace',
           padding: 24,
         }}
       >
-        <p style={{ letterSpacing: "0.2em" }}>! SYSTEM FAULT</p>
-        <p style={{ marginTop: 12 }}>{error.message}</p>
+        <p style={{ letterSpacing: "0.22em" }}>! SYSTEM FAULT</p>
+        <p style={{ marginTop: 12, color: "#d7f6ff", fontWeight: 300 }}>{error.message}</p>
         <button
           type="button"
           onClick={reset}
           style={{
             marginTop: 16,
-            border: "1px solid #3dff6e",
+            border: "1px solid #4ae3ff",
             background: "transparent",
-            color: "#3dff6e",
+            color: "#4ae3ff",
             padding: "8px 12px",
             fontFamily: "inherit",
+            letterSpacing: "0.18em",
             cursor: "pointer",
           }}
         >

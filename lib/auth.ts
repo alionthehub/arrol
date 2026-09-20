@@ -49,3 +49,20 @@ export function passwordMatches(input: string) {
   if (!password) return false;
   return safeEqual(input, password);
 }
+
+export function getShortcutToken() {
+  return process.env.AROL_SHORTCUT_TOKEN ?? "";
+}
+
+export function readBearerToken(request: Request) {
+  const header = request.headers.get("authorization") ?? "";
+  if (!/^Bearer\s+/i.test(header)) return "";
+  return header.replace(/^Bearer\s+/i, "").trim();
+}
+
+export function isValidShortcutRequest(request: Request) {
+  const expected = getShortcutToken();
+  const token = readBearerToken(request);
+  if (!expected || !token) return false;
+  return safeEqual(token, expected);
+}

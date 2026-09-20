@@ -1,12 +1,20 @@
 import type { Metadata } from "next";
-import { JetBrains_Mono } from "next/font/google";
-import { CrtOverlay } from "@/components/crt-overlay";
+import { Barlow_Condensed, Share_Tech_Mono } from "next/font/google";
+import { HudAtmosphere } from "@/components/hud/atmosphere";
 import { crtEffectsFromCookie } from "@/lib/session";
 import "./globals.css";
 
-const jetbrainsMono = JetBrains_Mono({
+const barlow = Barlow_Condensed({
   subsets: ["latin"],
-  variable: "--font-arrol",
+  weight: ["300", "400", "500", "600"],
+  variable: "--font-hud",
+  display: "swap",
+});
+
+const share = Share_Tech_Mono({
+  subsets: ["latin"],
+  weight: "400",
+  variable: "--font-hud-mono",
   display: "swap",
 });
 
@@ -19,16 +27,17 @@ export const metadata: Metadata = {
 };
 
 export default async function RootLayout({ children }: LayoutProps<"/">) {
-  const crtOn = await crtEffectsFromCookie(true);
+  const fxOn = await crtEffectsFromCookie(true);
 
   return (
     <html
       lang="en"
-      data-crt={crtOn ? "on" : "off"}
-      className={`${jetbrainsMono.variable} h-full bg-void antialiased`}
+      data-fx={fxOn ? "on" : "off"}
+      data-crt={fxOn ? "on" : "off"}
+      className={`${barlow.variable} ${share.variable} h-full bg-hud antialiased`}
     >
-      <body className="min-h-full bg-void font-mono text-phosphor">
-        <CrtOverlay />
+      <body className="min-h-full bg-hud font-sans text-ink">
+        <HudAtmosphere />
         {children}
       </body>
     </html>

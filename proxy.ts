@@ -4,6 +4,10 @@ import { SESSION_COOKIE, isValidSession } from "@/lib/auth";
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  if (pathname === "/api/voice" || pathname === "/api/voice/") {
+    return NextResponse.next();
+  }
+
   const token = request.cookies.get(SESSION_COOKIE)?.value;
   const authed = isValidSession(token);
   const isLogin = pathname === "/login";
