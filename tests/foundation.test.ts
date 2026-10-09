@@ -14,7 +14,11 @@ import {
 import { SESSION_MAX_AGE_SECONDS } from "@/lib/security/constants";
 import { decideAccess } from "@/lib/security/guard";
 import { SECURITY_HEADERS } from "@/lib/security/headers";
-import { advanceRateLimit, rateLimitBlocked } from "@/lib/security/rate-limit";
+import { openSecret, sealSecret, type KeyRing } from "@/lib/security/cipher";
+import { assertDevDatabase } from "@/lib/security/database-guard";
+import { anyRateLimited, advanceRateLimit, rateLimitBlocked } from "@/lib/security/rate-limit";
+import { generateRecoveryCodes, hashRecoveryCode } from "@/lib/security/recovery";
+import { setupRequest } from "@/lib/security/setup-gate";
 import { hashApiToken, rejectUnlessScope, scopeDecision } from "@/lib/security/tokens";
 import { findingsIn, scanTracked } from "../scripts/check-secrets.mjs";
 import { findingsInBundle } from "../scripts/check-client-bundle.mjs";
@@ -41,7 +45,7 @@ function appRoutes(dir = path.join(ROOT, "app"), parts: string[] = []): string[]
 
 function unauthenticated(pathname: string) {
   return proxy(
-    new NextRequest(`https://arrol.vercel.app${pathname}`, {
+    new NextRequest(`https://console.example${pathname}`, {
       headers: { "x-forwarded-proto": "https" },
     }),
   );
@@ -73,7 +77,12 @@ describe("route gate", () => {
     for (const route of routes) {
       const decision = decideAccess(route, { session: false, bearer: false });
       const response = unauthenticated(route);
-      if (route === "/login" || route === "/api/health" || route.startsWith("/api/auth/")) {
+      if (
+        route === "/login" ||
+        route === "/api/health" ||
+        route.startsWith("/api/auth/") ||
+        route.startsWith("/api/setup/")
+      ) {
         expect(decision).toEqual({ type: "allow" });
         expect(response.status).toBe(200);
         continue;
@@ -85,7 +94,7 @@ describe("route gate", () => {
       }
       expect(decision).toEqual({ type: "redirect", to: "/login" });
       expect(response.status).toBe(307);
-      expect(response.headers.get("location")).toBe("https://arrol.vercel.app/login");
+      expect(response.headers.get("location")).toBe("https://console.example/login");
     }
   });
 });
@@ -184,13 +193,116 @@ describe("session cookie", () => {
 });
 
 describe("rate limit", () => {
-  it("blocks after the failure budget", () => {
-    let window: { windowStartMs: number; count: number } | null = null;
-    for (let attempt = 0; attempt < 8; attempt += 1) {
-      expect(rateLimitBlocked(window, 0, { limit: 8, windowMs: 1000 })).toBe(false);
-      window = advanceRateLimit(window, 0, { limit: 8, windowMs: 1000 }).next;
+  const options = { limit: 5, windowMs: 15 * 60 * 1000, lockoutMs: 15 * 60 * 1000 };
+
+  it("allows five failures, then locks the bucket for 15 minutes", () => {
+    let state: { windowStartMs: number; count: number; lockedUntilMs: number | null } | null =
+      null;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      expect(rateLimitBlocked(state, 0, options)).toBe(false);
+      const step = advanceRateLimit(state, 0, options);
+      expect(step.blocked).toBe(false);
+      state = step.next;
     }
-    expect(rateLimitBlocked(window, 0, { limit: 8, windowMs: 1000 })).toBe(true);
+    expect(state?.count).toBe(5);
+    expect(state?.lockedUntilMs).toBe(options.lockoutMs);
+    expect(rateLimitBlocked(state, options.lockoutMs - 1, options)).toBe(true);
+    const duringLock = advanceRateLimit(state, 1_000, options);
+    expect(duringLock.blocked).toBe(true);
+    expect(rateLimitBlocked(state, options.lockoutMs, options)).toBe(false);
+  });
+
+  it("locks when either the IP bucket or the account bucket is exhausted", () => {
+    const open = rateLimitBlocked(null, 0, options);
+    const locked = rateLimitBlocked(
+      { windowStartMs: 0, count: 5, lockedUntilMs: options.lockoutMs },
+      0,
+      options,
+    );
+    expect(anyRateLimited([open, locked])).toBe(true);
+    expect(anyRateLimited([open, false])).toBe(false);
+  });
+});
+
+describe("setup closure", () => {
+  it("returns 404 for every setup path once owner setup is complete", () => {
+    expect(setupRequest(true)?.status).toBe(404);
+    expect(setupRequest(false)).toBeNull();
+    const route = readFileSync(path.join(ROOT, "app/api/setup/[...path]/route.ts"), "utf8");
+    expect(route).toContain("setupRequest(await isSetupComplete())");
+    expect(readFileSync(path.join(ROOT, "lib/security/auth-flow.ts"), "utf8")).toContain(
+      "ownerState",
+    );
+  });
+});
+
+describe("recovery codes", () => {
+  it("stores a hash and never the displayed code", () => {
+    const [code] = generateRecoveryCodes(1);
+    expect(code).toMatch(/^[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}$/);
+    const hash = hashRecoveryCode(code);
+    expect(hash).not.toContain(code.replace(/-/g, ""));
+    expect(hash).toMatch(/^[a-f0-9]{64}$/);
+    expect(readFileSync(path.join(ROOT, "lib/security/auth-flow.ts"), "utf8")).toContain(
+      'action: "auth.recovery_code"',
+    );
+  });
+});
+
+describe("encryption key versions", () => {
+  it("decrypts a previous version after rotation and seals with the current id", () => {
+    const previous = Buffer.alloc(32, 1).toString("base64");
+    const current = Buffer.alloc(32, 2).toString("base64");
+    const before: KeyRing = { current: { id: "1", key: previous } };
+    const stored = sealSecret("totp-secret", before);
+    expect(stored.startsWith("v1:")).toBe(true);
+    const after: KeyRing = {
+      current: { id: "2", key: current },
+      previous: { id: "1", key: previous },
+    };
+    expect(openSecret(stored, after)).toBe("totp-secret");
+    expect(sealSecret("totp-secret", after).startsWith("v2:")).toBe(true);
+    expect(openSecret(sealSecret("totp-secret", after), after)).toBe("totp-secret");
+    const legacy = stored.slice(stored.indexOf(":") + 1);
+    expect(openSecret(legacy, before)).toBe("totp-secret");
+  });
+});
+
+describe("development database guard", () => {
+  it("throws when a non-production process points at the production host", () => {
+    expect(() =>
+      assertDevDatabase({
+        NODE_ENV: "development",
+        DATABASE_URL: "postgres://user:secret@ep-example-pooler.region.aws.neon.tech/app",
+        ARROL_PRODUCTION_DATABASE_HOST: "ep-example.region.aws.neon.tech",
+      } as NodeJS.ProcessEnv),
+    ).toThrow(/production database/);
+    expect(() =>
+      assertDevDatabase({
+        NODE_ENV: "development",
+        DATABASE_URL: "postgres://user:secret@dev.example/app",
+        ARROL_PRODUCTION_DATABASE_HOST: "prod.example",
+      } as NodeJS.ProcessEnv),
+    ).not.toThrow();
+    expect(() =>
+      assertDevDatabase({
+        NODE_ENV: "production",
+        DATABASE_URL: "postgres://user:secret@prod.example/app",
+        ARROL_PRODUCTION_DATABASE_HOST: "prod.example",
+      } as NodeJS.ProcessEnv),
+    ).not.toThrow();
+  });
+});
+
+describe("no legacy password or baked-in domain", () => {
+  it("has no legacy password env or baked-in deployment host in source", () => {
+    const password = ["ARROL", "PASSWORD"].join("_");
+    const domain = ["arrol", "vercel.app"].join(".");
+    const hits = sourceFiles(ROOT).filter((file) => {
+      const text = readFileSync(file, "utf8");
+      return text.includes(password) || text.includes(domain);
+    });
+    expect(hits).toEqual([]);
   });
 });
 
@@ -245,6 +357,18 @@ function walk(dir: string): string[] {
     const full = path.join(dir, entry);
     if (statSync(full).isDirectory()) files.push(...walk(full));
     else if (/\.(ts|tsx)$/.test(entry)) files.push(full);
+  }
+  return files;
+}
+
+function sourceFiles(dir: string): string[] {
+  const skip = new Set(["node_modules", ".next", ".git", "coverage"]);
+  const files: string[] = [];
+  for (const entry of readdirSync(dir)) {
+    if (skip.has(entry)) continue;
+    const full = path.join(dir, entry);
+    if (statSync(full).isDirectory()) files.push(...sourceFiles(full));
+    else if (/\.(ts|tsx|mjs|md|json|example|prisma|sql)$/.test(entry)) files.push(full);
   }
   return files;
 }

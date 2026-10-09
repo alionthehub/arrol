@@ -5,6 +5,10 @@ import { useActionState, useState } from "react";
 import { HudFrame } from "@/components/hud/chrome";
 import { API_SCOPES } from "@/lib/security/constants";
 import {
+  regenerateRecovery,
+  type RecoveryActionState,
+} from "./recovery-actions";
+import {
   createIntegrationToken,
   revokeIntegrationToken,
   type TokenActionState,
@@ -20,6 +24,7 @@ type TokenRow = {
 };
 
 const initialState: TokenActionState = { status: "idle" };
+const recoveryInitial: RecoveryActionState = { status: "idle" };
 
 export function AccessPanel({
   tokens,
@@ -31,6 +36,10 @@ export function AccessPanel({
   const [state, formAction, pending] = useActionState(
     createIntegrationToken,
     initialState,
+  );
+  const [recovery, recoverAction, recovering] = useActionState(
+    regenerateRecovery,
+    recoveryInitial,
   );
   const [stepUp, setStepUp] = useState("");
   const [code, setCode] = useState("");
@@ -144,6 +153,7 @@ export function AccessPanel({
       </HudFrame>
 
       {recent ? (
+        <>
         <HudFrame title="NEW TOKEN">
           <form action={formAction} className="space-y-4">
             <label className="hud-mono block text-[10px] tracking-[0.2em] text-cyan/70">
@@ -186,10 +196,36 @@ export function AccessPanel({
             </p>
           ) : null}
         </HudFrame>
+        <HudFrame title="RECOVERY">
+          <p className="font-light text-[13px] text-ink/70">
+            Regenerating creates ten new single-use codes and invalidates the previous set.
+          </p>
+          <form className="mt-4" action={recoverAction}>
+            <button type="submit" className="hud-btn" disabled={recovering}>
+              {recovering ? "WORKING…" : "REGENERATE CODES"}
+            </button>
+          </form>
+          {recovery.status === "created" && recovery.codes ? (
+            <ul className="mt-4 space-y-2">
+              {recovery.codes.map((recoveryCode) => (
+                <li
+                  key={recoveryCode}
+                  className="hud-mono text-[13px] tracking-[0.18em] text-cyan"
+                >
+                  {recoveryCode}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {recovery.message ? (
+            <p className="hud-mono mt-4 text-sm text-cyan/70">{recovery.message}</p>
+          ) : null}
+        </HudFrame>
+        </>
       ) : (
         <HudFrame title="RE-AUTH">
           <p className="font-light text-[13px] text-ink/70">
-            Confirm with your passkey or authenticator before issuing or revoking a token.
+            Confirm with your passkey or authenticator before issuing a token, revoking one, or regenerating recovery codes.
           </p>
           <div className="mt-4 flex flex-wrap items-end gap-3">
             <button

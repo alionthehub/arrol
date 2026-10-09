@@ -8,7 +8,12 @@ import { jsonError, readJson } from "@/lib/security/request";
 export const runtime = "nodejs";
 
 function intentOf(value: unknown): AuthIntent | null {
-  if (value === "setup" || value === "sign-in" || value === "step-up" || value === "enroll") {
+  if (
+    value === "sign-in" ||
+    value === "step-up" ||
+    value === "enroll" ||
+    value === "reenroll"
+  ) {
     return value;
   }
   return null;
@@ -18,6 +23,7 @@ export async function POST(request: Request) {
   const body = await readJson(request);
   const record =
     body && typeof body === "object" ? (body as Record<string, unknown>) : {};
+  if (record.intent === "setup") return new Response(null, { status: 404 });
   const intent = intentOf(record.intent);
   const response = record.response;
   if (!intent || !response || typeof response !== "object") {

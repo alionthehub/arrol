@@ -14,9 +14,10 @@ model User {
   id          String               @id @default(cuid())
   email       String               @unique
   createdAt   DateTime             @default(now()) @map("created_at")
-  credentials WebAuthnCredential[]
-  totp        TotpSecret?
-  sessions    Session[]
+  credentials   WebAuthnCredential[]
+  totp          TotpSecret?
+  sessions      Session[]
+  recoveryCodes RecoveryCode[]
 
   @@map("users")
   @@schema("public")
@@ -101,11 +102,35 @@ model ApiToken {
 }
 
 model LoginAttempt {
-  id          String   @id
-  windowStart DateTime @map("window_start")
+  id          String    @id
+  windowStart DateTime  @map("window_start")
   count       Int
+  lockedUntil DateTime? @map("locked_until")
 
   @@map("login_attempts")
+  @@schema("public")
+}
+
+/// Set once, when the owner finishes authenticator setup. Setup routes check this row.
+model OwnerState {
+  id               Int       @id
+  setupCompletedAt DateTime? @map("setup_completed_at")
+
+  @@map("owner_state")
+  @@schema("public")
+}
+
+model RecoveryCode {
+  id        String    @id @default(cuid())
+  userId    String    @map("user_id")
+  codeHash  String    @unique @map("code_hash")
+  batchId   String    @map("batch_id")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("recovery_codes")
   @@schema("public")
 }
 

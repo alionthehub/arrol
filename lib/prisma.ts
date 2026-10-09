@@ -1,5 +1,8 @@
 import "server-only";
 import { PrismaClient } from "@prisma/client";
+import { assertDevDatabase } from "@/lib/security/database-guard";
+
+assertDevDatabase();
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 

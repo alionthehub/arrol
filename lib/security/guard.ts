@@ -20,7 +20,8 @@ export function isPublicPath(pathname: string) {
   return (
     path === "/login" ||
     path === "/api/health" ||
-    path.startsWith("/api/auth/")
+    path.startsWith("/api/auth/") ||
+    path.startsWith("/api/setup/")
   );
 }
 
@@ -32,7 +33,11 @@ export function isPublicPath(pathname: string) {
  */
 export function decideAccess(pathname: string, auth: AccessAuth): AccessDecision {
   const path = normalize(pathname);
-  if (path === "/api/health" || path.startsWith("/api/auth/")) {
+  if (
+    path === "/api/health" ||
+    path.startsWith("/api/auth/") ||
+    path.startsWith("/api/setup/")
+  ) {
     return { type: "allow" };
   }
   if (path === "/login") {

@@ -9,7 +9,7 @@ import {
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-type Enrollment = "needs-passkey" | "needs-totp" | "ready";
+type Enrollment = "needs-passkey" | "needs-totp" | "reenroll" | "ready";
 
 type TotpHandoff = { secret: string; uri: string };
 
@@ -41,7 +41,9 @@ export function LoginGate({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [totp, setTotp] = useState<TotpHandoff | null>(null);
-  const [mode, setMode] = useState<"passkey" | "totp">("passkey");
+  const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
+  const [replacing, setReplacing] = useState(false);
+  const [mode, setMode] = useState<"passkey" | "totp" | "recovery">("passkey");
   const router = useRouter();
 
   async function run(task: () => Promise<void>) {
@@ -59,14 +61,13 @@ export function LoginGate({
   async function registerPasskey() {
     await run(async () => {
       const options = await postJson<PublicKeyCredentialCreationOptionsJSON>(
-        "/api/auth/passkey/options",
-        { intent: "setup", setupToken },
+        "/api/setup/passkey/options",
+        { setupToken },
       );
       const attestation = await startRegistration({ optionsJSON: options });
       const verified = await postJson<{ secret?: string; uri?: string }>(
-        "/api/auth/passkey/verify",
+        "/api/setup/passkey/verify",
         {
-        intent: "setup",
         setupToken,
         response: attestation,
       });
@@ -79,7 +80,7 @@ export function LoginGate({
 
   async function revealTotp() {
     await run(async () => {
-      const revealed = await postJson<{ secret?: string; uri?: string }>("/api/auth/totp", {
+      const revealed = await postJson<{ secret?: string; uri?: string }>("/api/setup/totp", {
         intent: "reveal",
         setupToken,
       });
@@ -92,11 +93,15 @@ export function LoginGate({
 
   async function confirmTotp() {
     await run(async () => {
-      await postJson("/api/auth/totp", {
+      const confirmed = await postJson<{ recoveryCodes?: string[] }>("/api/setup/totp", {
         intent: "setup",
         setupToken,
         code,
       });
+      if (confirmed.recoveryCodes?.length) {
+        setRecoveryCodes(confirmed.recoveryCodes);
+        return;
+      }
       router.push("/today");
       router.refresh();
     });
@@ -120,13 +125,49 @@ export function LoginGate({
 
   async function signInTotp() {
     await run(async () => {
-      await postJson("/api/auth/totp", { intent: "sign-in", code });
+      const result = await postJson<{ status?: string }>("/api/auth/totp", {
+        intent: "sign-in",
+        code,
+      });
+      if (result.status === "reenroll") {
+        setReplacing(true);
+        setCode("");
+        return;
+      }
       router.push("/today");
       router.refresh();
     });
   }
 
-  const settingUp = enrollment !== "ready" || totp !== null;
+  async function signInRecovery() {
+    await run(async () => {
+      const result = await postJson<{ status?: string }>("/api/auth/recovery", { code });
+      if (result.status !== "reenroll") {
+        throw new Error("ACCESS DENIED");
+      }
+      setReplacing(true);
+      setCode("");
+    });
+  }
+
+  async function registerReplacement() {
+    await run(async () => {
+      const options = await postJson<PublicKeyCredentialCreationOptionsJSON>(
+        "/api/auth/passkey/options",
+        { intent: "reenroll" },
+      );
+      const attestation = await startRegistration({ optionsJSON: options });
+      await postJson("/api/auth/passkey/verify", {
+        intent: "reenroll",
+        response: attestation,
+      });
+      router.push("/today");
+      router.refresh();
+    });
+  }
+
+  const settingUp =
+    enrollment === "needs-passkey" || enrollment === "needs-totp" || totp !== null;
 
   return (
     <div className="relative z-10 flex min-h-dvh flex-col px-4 py-6 sm:px-6">
@@ -203,7 +244,35 @@ export function LoginGate({
           </div>
         ) : null}
 
-        {totp ? (
+        {recoveryCodes ? (
+          <div className="mt-8 space-y-4">
+            <p className="font-light text-[13px] text-ink/70">
+              Save these recovery codes. Each one works once, and this is the only time they are shown.
+            </p>
+            <ul className="space-y-2">
+              {recoveryCodes.map((recoveryCode) => (
+                <li
+                  key={recoveryCode}
+                  className="hud-mono text-[13px] tracking-[0.18em] text-cyan"
+                >
+                  {recoveryCode}
+                </li>
+              ))}
+            </ul>
+            <button
+              type="button"
+              className="hud-btn"
+              onClick={() => {
+                router.push("/today");
+                router.refresh();
+              }}
+            >
+              I SAVED THESE CODES
+            </button>
+          </div>
+        ) : null}
+
+        {totp && !recoveryCodes ? (
           <div className="mt-8 space-y-4">
             <p className="font-light text-[13px] text-ink/70">
               Add this key to an authenticator app, then enter the 6-digit code.
@@ -236,18 +305,34 @@ export function LoginGate({
           </div>
         ) : null}
 
-        {enrollment === "ready" && !totp ? (
+        {(enrollment === "ready" || enrollment === "reenroll" || replacing) &&
+        !totp &&
+        !recoveryCodes ? (
           <div className="mt-8 space-y-4">
-            {mode === "passkey" ? (
+            {enrollment === "reenroll" || replacing ? (
+              <p className="font-light text-[13px] text-ink/70">
+                This recovery code removed the previous passkey. Register a new one before the console opens.
+              </p>
+            ) : null}
+            {mode === "passkey" || enrollment === "reenroll" || replacing ? (
               <button
                 type="button"
                 className="hud-btn"
                 disabled={pending}
-                onClick={() => void signInPasskey()}
+                onClick={() =>
+                  void (enrollment === "reenroll" || replacing
+                    ? registerReplacement()
+                    : signInPasskey())
+                }
               >
-                {pending ? "WAITING…" : "SIGN IN WITH PASSKEY"}
+                {pending
+                  ? "WAITING…"
+                  : enrollment === "reenroll" || replacing
+                    ? "REGISTER PASSKEY"
+                    : "SIGN IN WITH PASSKEY"}
               </button>
-            ) : (
+            ) : null}
+            {mode === "totp" && enrollment !== "reenroll" && !replacing ? (
               <>
                 <label className="hud-mono block text-[10px] tracking-[0.22em] text-cyan/70">
                   AUTHENTICATOR CODE
@@ -269,17 +354,54 @@ export function LoginGate({
                   {pending ? "VERIFYING…" : "SIGN IN WITH CODE"}
                 </button>
               </>
-            )}
-            <button
-              type="button"
-              className="hud-mono text-[10px] tracking-[0.22em] text-cyan/50"
-              onClick={() => {
-                setMode((current) => (current === "passkey" ? "totp" : "passkey"));
-                setError("");
-              }}
-            >
-              {mode === "passkey" ? "USE AUTHENTICATOR INSTEAD" : "USE PASSKEY"}
-            </button>
+            ) : null}
+            {mode === "recovery" && enrollment !== "reenroll" && !replacing ? (
+              <>
+                <label className="hud-mono block text-[10px] tracking-[0.22em] text-cyan/70">
+                  RECOVERY CODE
+                  <input
+                    className="hud-field"
+                    autoComplete="off"
+                    value={code}
+                    onChange={(event) => setCode(event.target.value)}
+                    disabled={pending}
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="hud-btn"
+                  disabled={pending || code.replace(/[^a-zA-Z0-9]/g, "").length !== 12}
+                  onClick={() => void signInRecovery()}
+                >
+                  {pending ? "VERIFYING…" : "USE RECOVERY CODE"}
+                </button>
+              </>
+            ) : null}
+            {enrollment !== "reenroll" && !replacing ? (
+              <div className="flex flex-wrap gap-4">
+                <button
+                  type="button"
+                  className="hud-mono text-[10px] tracking-[0.22em] text-cyan/50"
+                  onClick={() => {
+                    setMode((current) => (current === "passkey" ? "totp" : "passkey"));
+                    setError("");
+                  }}
+                >
+                  {mode === "passkey" ? "USE AUTHENTICATOR INSTEAD" : "USE PASSKEY"}
+                </button>
+                <button
+                  type="button"
+                  className="hud-mono text-[10px] tracking-[0.22em] text-cyan/50"
+                  onClick={() => {
+                    setMode("recovery");
+                    setCode("");
+                    setError("");
+                  }}
+                >
+                  USE RECOVERY CODE
+                </button>
+              </div>
+            ) : null}
           </div>
         ) : null}
 

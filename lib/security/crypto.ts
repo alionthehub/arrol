@@ -1,31 +1,27 @@
 import "server-only";
-import { createCipheriv, createDecipheriv, randomBytes } from "crypto";
+import { openSecret, sealSecret, type KeyRing } from "@/lib/security/cipher";
+import { requiredEnv } from "@/lib/security/env";
 
-function encryptionKey(raw: string) {
-  const key = Buffer.from(raw, "base64");
-  if (key.length !== 32) {
-    throw new Error("ARROL_ENCRYPTION_KEY must be 32 bytes, base64-encoded");
-  }
-  return key;
+export function keyRingFromEnv(env: NodeJS.ProcessEnv = process.env): KeyRing {
+  const current = {
+    id: env.ARROL_ENCRYPTION_KEY_VERSION?.trim() || "1",
+    key: requiredEnv("ARROL_ENCRYPTION_KEY"),
+  };
+  const previousKey = env.ARROL_ENCRYPTION_KEY_PREVIOUS?.trim();
+  if (!previousKey) return { current };
+  return {
+    current,
+    previous: {
+      id: env.ARROL_ENCRYPTION_KEY_PREVIOUS_VERSION?.trim() || "0",
+      key: previousKey,
+    },
+  };
 }
 
-export function encryptString(plain: string, keyB64: string) {
-  const iv = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", encryptionKey(keyB64), iv);
-  const ciphertext = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
-  const tag = cipher.getAuthTag();
-  return Buffer.concat([iv, tag, ciphertext]).toString("base64");
+export function encryptString(plain: string) {
+  return sealSecret(plain, keyRingFromEnv());
 }
 
-export function decryptString(payload: string, keyB64: string) {
-  const buf = Buffer.from(payload, "base64");
-  if (buf.length < 29) {
-    throw new Error("Ciphertext is truncated");
-  }
-  const iv = buf.subarray(0, 12);
-  const tag = buf.subarray(12, 28);
-  const data = buf.subarray(28);
-  const decipher = createDecipheriv("aes-256-gcm", encryptionKey(keyB64), iv);
-  decipher.setAuthTag(tag);
-  return Buffer.concat([decipher.update(data), decipher.final()]).toString("utf8");
+export function decryptString(stored: string) {
+  return openSecret(stored, keyRingFromEnv());
 }

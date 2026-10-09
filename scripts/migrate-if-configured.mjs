@@ -27,6 +27,24 @@ if (!process.env.DATABASE_URL?.startsWith("postgres")) {
   process.exit(0);
 }
 
+function databaseHost(url) {
+  if (!url?.startsWith("postgres") || !url.includes("@")) return "";
+  const hostPort = url.split("@")[1]?.split("/")[0]?.split("?")[0] ?? "";
+  return hostPort.split(":")[0]?.replace("-pooler", "").toLowerCase() ?? "";
+}
+
+if (process.env.NODE_ENV !== "production") {
+  const current = databaseHost(process.env.DATABASE_URL);
+  const production = (process.env.ARROL_PRODUCTION_DATABASE_HOST ?? "")
+    .trim()
+    .toLowerCase()
+    .replace("-pooler", "");
+  if (current && production && current === production) {
+    console.error("Refusing to use the production database outside production.");
+    process.exit(1);
+  }
+}
+
 function withoutPooler(url) {
   if (!url?.startsWith("postgres")) return url;
   return url.replace("-pooler.", ".");
