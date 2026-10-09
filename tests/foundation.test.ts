@@ -291,6 +291,18 @@ describe("development database guard", () => {
         ARROL_PRODUCTION_DATABASE_HOST: "prod.example",
       } as NodeJS.ProcessEnv),
     ).not.toThrow();
+    expect(() =>
+      assertDevDatabase({
+        NODE_ENV: "development",
+        POSTGRES_URL: "postgres://user:secret@other.example/app",
+      } as NodeJS.ProcessEnv),
+    ).toThrow(/DATABASE_URL is unset/);
+    expect(() => assertDevDatabase({ NODE_ENV: "development" } as NodeJS.ProcessEnv)).toThrow(
+      /DATABASE_URL is unset/,
+    );
+    const migrate = readFileSync(path.join(ROOT, "scripts/migrate-if-configured.mjs"), "utf8");
+    expect(migrate).toContain("DATABASE_URL is unset. Refusing to run outside production.");
+    expect(migrate).not.toContain("Skipping prisma migrate");
   });
 });
 

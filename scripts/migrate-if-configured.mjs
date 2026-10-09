@@ -22,9 +22,14 @@ function loadEnvFile(file) {
 loadEnvFile(".env");
 loadEnvFile(".env.local");
 
+if (process.env.NODE_ENV !== "production" && !process.env.DATABASE_URL?.startsWith("postgres")) {
+  console.error("DATABASE_URL is unset. Refusing to run outside production.");
+  process.exit(1);
+}
+
 if (!process.env.DATABASE_URL?.startsWith("postgres")) {
-  console.log("DATABASE_URL is not set. Skipping prisma migrate deploy.");
-  process.exit(0);
+  console.error("DATABASE_URL is unset. Refusing to migrate.");
+  process.exit(1);
 }
 
 function databaseHost(url) {

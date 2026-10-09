@@ -6,7 +6,13 @@ export function databaseHost(url: string | undefined) {
 
 export function assertDevDatabase(env: NodeJS.ProcessEnv = process.env) {
   if (env.NODE_ENV === "production") return;
-  const current = databaseHost(env.DATABASE_URL);
+  const url = env.DATABASE_URL;
+  if (!url?.startsWith("postgres")) {
+    throw new Error(
+      "DATABASE_URL is unset. Refusing to run outside production.",
+    );
+  }
+  const current = databaseHost(url);
   const production = (env.ARROL_PRODUCTION_DATABASE_HOST ?? "")
     .trim()
     .toLowerCase()
