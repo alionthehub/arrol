@@ -5,7 +5,7 @@ export function databaseHost(url: string | undefined) {
 }
 
 export function assertDevDatabase(env: NodeJS.ProcessEnv = process.env) {
-  if (env.NODE_ENV === "production") return;
+  if (env.VERCEL_ENV === "production") return;
   const url = env.DATABASE_URL;
   if (!url?.startsWith("postgres")) {
     throw new Error(

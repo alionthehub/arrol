@@ -221,6 +221,10 @@ describe("rate limit", () => {
     );
     expect(anyRateLimited([open, locked])).toBe(true);
     expect(anyRateLimited([open, false])).toBe(false);
+    const auth = readFileSync(path.join(ROOT, "lib/security/auth-flow.ts"), "utf8");
+    expect(auth).toContain('sha256Hex(`${purpose}:ip:${clientIpHash(request)}`)');
+    expect(auth).toContain('sha256Hex(`${purpose}:account:${accountLabel()}`)');
+    expect(auth).toContain("prisma.loginAttempt.upsert");
   });
 });
 
@@ -243,9 +247,10 @@ describe("recovery codes", () => {
     const hash = hashRecoveryCode(code);
     expect(hash).not.toContain(code.replace(/-/g, ""));
     expect(hash).toMatch(/^[a-f0-9]{64}$/);
-    expect(readFileSync(path.join(ROOT, "lib/security/auth-flow.ts"), "utf8")).toContain(
-      'action: "auth.recovery_code"',
-    );
+    const auth = readFileSync(path.join(ROOT, "lib/security/auth-flow.ts"), "utf8");
+    expect(auth).toContain('action: "auth.recovery_code"');
+    expect(auth).toContain("if (!row || row.usedAt)");
+    expect(auth).toContain("usedAt: new Date()");
   });
 });
 
@@ -265,6 +270,9 @@ describe("encryption key versions", () => {
     expect(openSecret(sealSecret("totp-secret", after), after)).toBe("totp-secret");
     const legacy = stored.slice(stored.indexOf(":") + 1);
     expect(openSecret(legacy, before)).toBe("totp-secret");
+    expect(readFileSync(path.join(ROOT, "lib/security/crypto.ts"), "utf8")).toContain(
+      "ARROL_ENCRYPTION_KEY_PREVIOUS",
+    );
   });
 });
 
@@ -272,14 +280,15 @@ describe("development database guard", () => {
   it("throws when a non-production process points at the production host", () => {
     expect(() =>
       assertDevDatabase({
-        NODE_ENV: "development",
+        NODE_ENV: "production",
+        VERCEL_ENV: "preview",
         DATABASE_URL: "postgres://user:secret@ep-example-pooler.region.aws.neon.tech/app",
         ARROL_PRODUCTION_DATABASE_HOST: "ep-example.region.aws.neon.tech",
       } as NodeJS.ProcessEnv),
     ).toThrow(/production database/);
     expect(() =>
       assertDevDatabase({
-        NODE_ENV: "development",
+        VERCEL_ENV: "preview",
         DATABASE_URL: "postgres://user:secret@dev.example/app",
         ARROL_PRODUCTION_DATABASE_HOST: "prod.example",
       } as NodeJS.ProcessEnv),
@@ -287,19 +296,21 @@ describe("development database guard", () => {
     expect(() =>
       assertDevDatabase({
         NODE_ENV: "production",
+        VERCEL_ENV: "production",
         DATABASE_URL: "postgres://user:secret@prod.example/app",
         ARROL_PRODUCTION_DATABASE_HOST: "prod.example",
       } as NodeJS.ProcessEnv),
     ).not.toThrow();
     expect(() =>
       assertDevDatabase({
-        NODE_ENV: "development",
+        NODE_ENV: "production",
+        VERCEL_ENV: "preview",
         POSTGRES_URL: "postgres://user:secret@other.example/app",
       } as NodeJS.ProcessEnv),
     ).toThrow(/DATABASE_URL is unset/);
-    expect(() => assertDevDatabase({ NODE_ENV: "development" } as NodeJS.ProcessEnv)).toThrow(
-      /DATABASE_URL is unset/,
-    );
+    expect(() =>
+      assertDevDatabase({ NODE_ENV: "production" } as NodeJS.ProcessEnv),
+    ).toThrow(/DATABASE_URL is unset/);
     const migrate = readFileSync(path.join(ROOT, "scripts/migrate-if-configured.mjs"), "utf8");
     expect(migrate).toContain("DATABASE_URL is unset. Refusing to run outside production.");
     expect(migrate).not.toContain("Skipping prisma migrate");
@@ -315,6 +326,9 @@ describe("no legacy password or baked-in domain", () => {
       return text.includes(password) || text.includes(domain);
     });
     expect(hits).toEqual([]);
+    const webauthn = readFileSync(path.join(ROOT, "lib/security/env.ts"), "utf8");
+    expect(webauthn).toContain('requiredEnv("WEBAUTHN_RP_ID")');
+    expect(webauthn).toContain('requiredEnv("WEBAUTHN_ORIGIN")');
   });
 });
 
