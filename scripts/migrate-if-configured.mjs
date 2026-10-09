@@ -27,9 +27,20 @@ if (!process.env.DATABASE_URL?.startsWith("postgres")) {
   process.exit(0);
 }
 
-if (!process.env.DATABASE_URL_UNPOOLED?.startsWith("postgres")) {
-  process.env.DATABASE_URL_UNPOOLED = process.env.DATABASE_URL;
+function withoutPooler(url) {
+  if (!url?.startsWith("postgres")) return url;
+  return url.replace("-pooler.", ".");
 }
+
+const direct = withoutPooler(
+  process.env.DATABASE_URL_UNPOOLED?.startsWith("postgres")
+    ? process.env.DATABASE_URL_UNPOOLED
+    : process.env.DATABASE_URL,
+);
+process.env.DATABASE_URL_UNPOOLED = direct;
+// Neon’s pooler cannot hold a session advisory lock. The migration history
+// check still runs; concurrent migrators are not expected on this database.
+process.env.PRISMA_SCHEMA_DISABLE_ADVISORY_LOCK = "1";
 
 const result = spawnSync("npx", ["prisma", "migrate", "deploy"], {
   stdio: "inherit",
