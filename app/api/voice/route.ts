@@ -1,14 +1,15 @@
 import { runAgent } from "@/lib/agent/loop";
-import { isValidShortcutRequest } from "@/lib/auth";
+import { lookupApiToken } from "@/lib/security/api-tokens";
+import { rejectUnlessScope } from "@/lib/security/tokens";
 import { listEnabledModels } from "@/lib/models";
 import { getSettings } from "@/lib/settings";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
-  if (!isValidShortcutRequest(request)) {
-    return Response.json({ error: "ACCESS DENIED" }, { status: 401 });
-  }
+  const token = await lookupApiToken(request);
+  const denied = rejectUnlessScope(token?.scopes ?? null, "voice:invoke");
+  if (denied) return denied;
 
   let text = "";
   try {

@@ -1,0 +1,127 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DATABASE_URL_UNPOOLED")
+  schemas   = ["public", "personal"]
+}
+
+/// Single owner. Created only during the one-time setup ceremony.
+model User {
+  id          String               @id @default(cuid())
+  email       String               @unique
+  createdAt   DateTime             @default(now()) @map("created_at")
+  credentials WebAuthnCredential[]
+  totp        TotpSecret?
+  sessions    Session[]
+
+  @@map("users")
+  @@schema("public")
+}
+
+model WebAuthnCredential {
+  credentialId String   @id @map("credential_id")
+  userId       String   @map("user_id")
+  publicKey    Bytes    @map("public_key")
+  counter      BigInt
+  transports   String[] @default([])
+  createdAt    DateTime @default(now()) @map("created_at")
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("webauthn_credentials")
+  @@schema("public")
+}
+
+model TotpSecret {
+  userId     String    @id @map("user_id")
+  ciphertext String
+  verifiedAt DateTime? @map("verified_at")
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("totp_secrets")
+  @@schema("public")
+}
+
+model Session {
+  id           String    @id
+  userId       String    @map("user_id")
+  expiresAt    DateTime  @map("expires_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  lastReauthAt DateTime  @map("last_reauth_at")
+  method       String
+  revokedAt    DateTime? @map("revoked_at")
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+  @@schema("public")
+}
+
+model AuthChallenge {
+  id        String   @id @default(cuid())
+  challenge String   @unique
+  purpose   String
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("auth_challenges")
+  @@schema("public")
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now()) @map("created_at")
+  action    String
+  outcome   String
+  source    String
+  actor     String?
+  subject   String?
+  metadata  Json     @default("{}")
+
+  @@index([createdAt])
+  @@map("audit_log")
+  @@schema("public")
+}
+
+model ApiToken {
+  id         String    @id @default(cuid())
+  name       String
+  tokenHash  String    @unique @map("token_hash")
+  scopes     String[]
+  createdAt  DateTime  @default(now()) @map("created_at")
+  revokedAt  DateTime? @map("revoked_at")
+  lastUsedAt DateTime? @map("last_used_at")
+
+  @@index([name])
+  @@map("api_tokens")
+  @@schema("public")
+}
+
+model LoginAttempt {
+  id          String   @id
+  windowStart DateTime @map("window_start")
+  count       Int
+
+  @@map("login_attempts")
+  @@schema("public")
+}
+
+/// Reserved for later. No personal columns until the owner is using the locked-down app.
+model HealthEntry {
+  id         String   @id @default(cuid())
+  recordedAt DateTime @default(now()) @map("recorded_at")
+
+  @@map("health_entries")
+  @@schema("personal")
+}
+
+model FoodEntry {
+  id         String   @id @default(cuid())
+  recordedAt DateTime @default(now()) @map("recorded_at")
+
+  @@map("food_entries")
+  @@schema("personal")
+}

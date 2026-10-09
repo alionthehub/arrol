@@ -1,75 +1,132 @@
 "use client";
 
-import { useActionState, useEffect, useRef, useState } from "react";
-import { authenticate, type LoginState } from "./actions";
+import {
+  startAuthentication,
+  startRegistration,
+  type PublicKeyCredentialCreationOptionsJSON,
+  type PublicKeyCredentialRequestOptionsJSON,
+} from "@simplewebauthn/browser";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
 
-const HANDSHAKE = [
-  "ARROL OPS CONSOLE",
-  "LINK ............... WAIT",
-  "LINK ............... UP",
-  "VOICE .............. STANDBY",
-  "CORE ............... READY",
-];
+type Enrollment = "needs-passkey" | "needs-totp" | "ready";
 
-const initialState: LoginState = { status: "idle" };
+type TotpHandoff = { secret: string; uri: string };
+
+async function postJson<T>(url: string, body: unknown): Promise<T> {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = (await response.json().catch(() => null)) as
+    | (T & { error?: string })
+    | { error?: string }
+    | null;
+  if (!response.ok) {
+    const message =
+      data && typeof data === "object" && "error" in data ? data.error : undefined;
+    throw new Error(message || "ACCESS DENIED");
+  }
+  return data as T;
+}
 
 export function LoginGate({
-  passwordConfigured,
+  enrollment,
 }: {
-  passwordConfigured: boolean;
+  enrollment: Enrollment | "offline";
 }) {
-  const [booting, setBooting] = useState(true);
-  const [visible, setVisible] = useState(0);
-  const [password, setPassword] = useState("");
-  const skipped = useRef(false);
-  const [state, formAction, pending] = useActionState(authenticate, initialState);
+  const [setupToken, setSetupToken] = useState("");
+  const [code, setCode] = useState("");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
+  const [totp, setTotp] = useState<TotpHandoff | null>(null);
+  const [mode, setMode] = useState<"passkey" | "totp">("passkey");
+  const router = useRouter();
 
-  useEffect(() => {
-    if (sessionStorage.getItem("arrol_boot_seen") !== "1") return;
-    skipped.current = true;
-    const id = window.setTimeout(() => {
-      setBooting(false);
-      setVisible(HANDSHAKE.length);
-    }, 0);
-    return () => window.clearTimeout(id);
-  }, []);
-
-  useEffect(() => {
-    function skip() {
-      skipped.current = true;
-      sessionStorage.setItem("arrol_boot_seen", "1");
-      setVisible(HANDSHAKE.length);
-      setBooting(false);
+  async function run(task: () => Promise<void>) {
+    setPending(true);
+    setError("");
+    try {
+      await task();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "ACCESS DENIED");
+    } finally {
+      setPending(false);
     }
+  }
 
-    function onKey(event: KeyboardEvent) {
-      if (!booting) return;
-      event.preventDefault();
-      skip();
-    }
+  async function registerPasskey() {
+    await run(async () => {
+      const options = await postJson<PublicKeyCredentialCreationOptionsJSON>(
+        "/api/auth/passkey/options",
+        { intent: "setup", setupToken },
+      );
+      const attestation = await startRegistration({ optionsJSON: options });
+      const verified = await postJson<{ secret?: string; uri?: string }>(
+        "/api/auth/passkey/verify",
+        {
+        intent: "setup",
+        setupToken,
+        response: attestation,
+      });
+      if (!verified.secret || !verified.uri) {
+        throw new Error("AUTHENTICATOR SETUP FAILED");
+      }
+      setTotp({ secret: verified.secret, uri: verified.uri });
+    });
+  }
 
-    function onPointer() {
-      if (booting) skip();
-    }
+  async function revealTotp() {
+    await run(async () => {
+      const revealed = await postJson<{ secret?: string; uri?: string }>("/api/auth/totp", {
+        intent: "reveal",
+        setupToken,
+      });
+      if (!revealed.secret || !revealed.uri) {
+        throw new Error("AUTHENTICATOR SETUP FAILED");
+      }
+      setTotp({ secret: revealed.secret, uri: revealed.uri });
+    });
+  }
 
-    window.addEventListener("keydown", onKey);
-    window.addEventListener("pointerdown", onPointer);
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      window.removeEventListener("pointerdown", onPointer);
-    };
-  }, [booting]);
+  async function confirmTotp() {
+    await run(async () => {
+      await postJson("/api/auth/totp", {
+        intent: "setup",
+        setupToken,
+        code,
+      });
+      router.push("/today");
+      router.refresh();
+    });
+  }
 
-  useEffect(() => {
-    if (!booting || skipped.current) return;
-    if (visible >= HANDSHAKE.length) {
-      sessionStorage.setItem("arrol_boot_seen", "1");
-      const id = window.setTimeout(() => setBooting(false), 280);
-      return () => window.clearTimeout(id);
-    }
-    const id = window.setTimeout(() => setVisible((n) => n + 1), 90);
-    return () => window.clearTimeout(id);
-  }, [booting, visible]);
+  async function signInPasskey() {
+    await run(async () => {
+      const options = await postJson<PublicKeyCredentialRequestOptionsJSON>(
+        "/api/auth/passkey/options",
+        { intent: "sign-in" },
+      );
+      const assertion = await startAuthentication({ optionsJSON: options });
+      await postJson("/api/auth/passkey/verify", {
+        intent: "sign-in",
+        response: assertion,
+      });
+      router.push("/today");
+      router.refresh();
+    });
+  }
+
+  async function signInTotp() {
+    await run(async () => {
+      await postJson("/api/auth/totp", { intent: "sign-in", code });
+      router.push("/today");
+      router.refresh();
+    });
+  }
+
+  const settingUp = enrollment !== "ready" || totp !== null;
 
   return (
     <div className="relative z-10 flex min-h-dvh flex-col px-4 py-6 sm:px-6">
@@ -82,85 +139,159 @@ export function LoginGate({
       </header>
 
       <div className="mx-auto mt-16 w-full max-w-lg">
-        {booting ? (
-          <button
-            type="button"
-            className="hud-mono mb-4 text-left text-[10px] tracking-[0.28em] text-cyan/45 hover:text-cyan"
-            onClick={() => {
-              skipped.current = true;
-              sessionStorage.setItem("arrol_boot_seen", "1");
-              setVisible(HANDSHAKE.length);
-              setBooting(false);
-            }}
-          >
-            ANY KEY SKIPS
-          </button>
-        ) : (
-          <p className="hud-mono mb-4 text-[10px] tracking-[0.28em] text-cyan/45">
-            GATE OPEN
-          </p>
-        )}
+        <p className="hud-mono mb-4 text-[10px] tracking-[0.28em] text-cyan/45">
+          SINGLE OWNER
+        </p>
+        <h1 className="hud-mono text-xl tracking-[0.28em] text-cyan">
+          {settingUp ? "ENROLL" : "AUTHENTICATE"}
+        </h1>
 
-        <div className="hud-mono space-y-1 text-[12px] tracking-[0.18em] text-cyan/80">
-          {HANDSHAKE.slice(0, visible).map((line) => (
-            <p key={line}>{line}</p>
-          ))}
-        </div>
-
-        {!booting ? (
-          <div className="mt-8">
-            {!passwordConfigured || state.status === "unset" ? (
-              <p className="hud-mono text-stale" role="alert">
-                FATAL: ARROL_PASSWORD UNSET
-                <br />
-                SET THE ENVIRONMENT VARIABLE AND RESTART.
-              </p>
-            ) : (
-              <form action={formAction} className="space-y-4">
-                <label className="hud-mono block text-[10px] tracking-[0.22em] text-cyan/70">
-                  AUTHENTICATE
-                  <input
-                    className="hud-field"
-                    name="password"
-                    type="password"
-                    autoComplete="current-password"
-                    autoFocus
-                    value={password}
-                    onChange={(event) => setPassword(event.target.value)}
-                    disabled={pending}
-                    aria-label="Password"
-                  />
-                </label>
-                {pending ? (
-                  <p className="hud-mono text-[11px] tracking-[0.2em] text-cyan/55">
-                    VERIFYING
-                  </p>
-                ) : null}
-                {state.status === "denied" ? (
-                  <p
-                    className="hud-mono text-lg tracking-[0.28em] text-stale"
-                    role="alert"
-                  >
-                    ACCESS DENIED
-                  </p>
-                ) : null}
-                <button type="submit" className="hud-btn" disabled={pending}>
-                  ENGAGE
-                </button>
-              </form>
-            )}
-          </div>
-        ) : (
-          <p className="hud-mono mt-6 text-[11px] tracking-[0.22em] text-cyan/45">
-            INIT
-          </p>
-        )}
-
-        {!booting ? (
-          <p className="hud-mono mt-16 text-[10px] tracking-[0.22em] text-cyan/35">
-            SESSION COOKIE · 30 DAYS · HTTPONLY
+        {enrollment === "offline" ? (
+          <p className="hud-mono mt-8 text-stale" role="alert">
+            LINK DOWN
           </p>
         ) : null}
+
+        {enrollment === "needs-passkey" && !totp ? (
+          <div className="mt-8 space-y-4">
+            <label className="hud-mono block text-[10px] tracking-[0.22em] text-cyan/70">
+              SETUP TOKEN
+              <input
+                className="hud-field"
+                type="password"
+                autoComplete="off"
+                value={setupToken}
+                onChange={(event) => setSetupToken(event.target.value)}
+                disabled={pending}
+              />
+            </label>
+            <button
+              type="button"
+              className="hud-btn"
+              disabled={pending || setupToken.length < 32}
+              onClick={() => void registerPasskey()}
+            >
+              {pending ? "WAITING…" : "REGISTER PASSKEY"}
+            </button>
+          </div>
+        ) : null}
+
+        {enrollment === "needs-totp" && !totp ? (
+          <div className="mt-8 space-y-4">
+            <p className="font-light text-[13px] text-ink/70">
+              Passkey is stored. Finish the authenticator app before the console opens.
+            </p>
+            <label className="hud-mono block text-[10px] tracking-[0.22em] text-cyan/70">
+              SETUP TOKEN
+              <input
+                className="hud-field"
+                type="password"
+                autoComplete="off"
+                value={setupToken}
+                onChange={(event) => setSetupToken(event.target.value)}
+                disabled={pending}
+              />
+            </label>
+            <button
+              type="button"
+              className="hud-btn"
+              disabled={pending || setupToken.length < 32}
+              onClick={() => void revealTotp()}
+            >
+              {pending ? "WAITING…" : "SHOW AUTHENTICATOR KEY"}
+            </button>
+          </div>
+        ) : null}
+
+        {totp ? (
+          <div className="mt-8 space-y-4">
+            <p className="font-light text-[13px] text-ink/70">
+              Add this key to an authenticator app, then enter the 6-digit code.
+            </p>
+            <p className="hud-mono break-all text-[12px] tracking-[0.14em] text-cyan">
+              {totp.secret}
+            </p>
+            <p className="hud-mono break-all text-[10px] tracking-[0.08em] text-cyan/50">
+              {totp.uri}
+            </p>
+            <label className="hud-mono block text-[10px] tracking-[0.22em] text-cyan/70">
+              AUTHENTICATOR CODE
+              <input
+                className="hud-field"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                value={code}
+                onChange={(event) => setCode(event.target.value)}
+                disabled={pending}
+              />
+            </label>
+            <button
+              type="button"
+              className="hud-btn"
+              disabled={pending || code.replace(/\s/g, "").length !== 6}
+              onClick={() => void confirmTotp()}
+            >
+              {pending ? "VERIFYING…" : "CONFIRM AND ENTER"}
+            </button>
+          </div>
+        ) : null}
+
+        {enrollment === "ready" && !totp ? (
+          <div className="mt-8 space-y-4">
+            {mode === "passkey" ? (
+              <button
+                type="button"
+                className="hud-btn"
+                disabled={pending}
+                onClick={() => void signInPasskey()}
+              >
+                {pending ? "WAITING…" : "SIGN IN WITH PASSKEY"}
+              </button>
+            ) : (
+              <>
+                <label className="hud-mono block text-[10px] tracking-[0.22em] text-cyan/70">
+                  AUTHENTICATOR CODE
+                  <input
+                    className="hud-field"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    value={code}
+                    onChange={(event) => setCode(event.target.value)}
+                    disabled={pending}
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="hud-btn"
+                  disabled={pending || code.replace(/\s/g, "").length !== 6}
+                  onClick={() => void signInTotp()}
+                >
+                  {pending ? "VERIFYING…" : "SIGN IN WITH CODE"}
+                </button>
+              </>
+            )}
+            <button
+              type="button"
+              className="hud-mono text-[10px] tracking-[0.22em] text-cyan/50"
+              onClick={() => {
+                setMode((current) => (current === "passkey" ? "totp" : "passkey"));
+                setError("");
+              }}
+            >
+              {mode === "passkey" ? "USE AUTHENTICATOR INSTEAD" : "USE PASSKEY"}
+            </button>
+          </div>
+        ) : null}
+
+        {error ? (
+          <p className="hud-mono mt-6 text-lg tracking-[0.28em] text-stale" role="alert">
+            {error}
+          </p>
+        ) : null}
+
+        <p className="hud-mono mt-16 text-[10px] tracking-[0.22em] text-cyan/35">
+          SESSION · 2 HOURS · HTTPONLY · SECURE · SAMESITE=LAX
+        </p>
       </div>
     </div>
   );

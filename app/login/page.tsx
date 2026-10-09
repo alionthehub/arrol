@@ -1,4 +1,4 @@
-import { isPasswordConfigured } from "@/lib/auth";
+import { enrollmentState, type Enrollment } from "@/lib/security/auth-flow";
 import { isAuthenticated } from "@/lib/session";
 import { redirect } from "next/navigation";
 import { LoginGate } from "./login-gate";
@@ -12,7 +12,12 @@ export default async function LoginPage() {
     redirect("/today");
   }
 
-  return (
-    <LoginGate passwordConfigured={isPasswordConfigured()} />
-  );
+  let enrollment: Enrollment | "offline" = "offline";
+  try {
+    enrollment = await enrollmentState();
+  } catch {
+    enrollment = "offline";
+  }
+
+  return <LoginGate enrollment={enrollment} />;
 }

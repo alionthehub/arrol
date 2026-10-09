@@ -15,6 +15,7 @@ import {
   type ModelInput,
 } from "@/lib/models";
 import { runAgent } from "@/lib/agent/loop";
+import { writeAudit } from "@/lib/security/audit-log";
 import { requireSessionAction } from "@/lib/session";
 
 export type ModelFormState = {
@@ -109,9 +110,16 @@ export async function createModel(
   _prev: ModelFormState,
   formData: FormData,
 ): Promise<ModelFormState> {
-  await requireSessionAction();
+  const session = await requireSessionAction();
   try {
-    await createModelRow(parseModelInput(formData));
+    const created = await createModelRow(parseModelInput(formData));
+    await writeAudit({
+      action: "models.create",
+      outcome: "success",
+      source: "web",
+      actor: session.userId,
+      subject: String(created.id),
+    });
   } catch (error) {
     return {
       status: "error",
@@ -126,12 +134,19 @@ export async function updateModel(
   _prev: ModelFormState,
   formData: FormData,
 ): Promise<ModelFormState> {
-  await requireSessionAction();
+  const session = await requireSessionAction();
   try {
     const updated = await updateModelRow(parseId(formData), parseModelInput(formData));
     if (!updated) {
       return { status: "error", message: "Model not found." };
     }
+    await writeAudit({
+      action: "models.update",
+      outcome: "success",
+      source: "web",
+      actor: session.userId,
+      subject: String(updated.id),
+    });
   } catch (error) {
     return {
       status: "error",
@@ -143,8 +158,15 @@ export async function updateModel(
 }
 
 export async function toggleModelEnabled(formData: FormData) {
-  await requireSessionAction();
-  await toggleModelRow(parseId(formData));
+  const session = await requireSessionAction();
+  const updated = await toggleModelRow(parseId(formData));
+  await writeAudit({
+    action: "models.update",
+    outcome: "success",
+    source: "web",
+    actor: session.userId,
+    subject: updated ? String(updated.id) : "",
+  });
   revalidatePath(MODELS_PATH);
 }
 
