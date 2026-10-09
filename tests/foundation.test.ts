@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { readdirSync, readFileSync, statSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -305,15 +306,41 @@ describe("development database guard", () => {
       assertDevDatabase({
         NODE_ENV: "production",
         VERCEL_ENV: "preview",
+        DATABASE_URL: "postgres://user:secret@dev.example/app",
+      } as NodeJS.ProcessEnv),
+    ).toThrow(/ARROL_PRODUCTION_DATABASE_HOST is unset/);
+    expect(() =>
+      assertDevDatabase({
+        NODE_ENV: "production",
+        VERCEL_ENV: "preview",
+        ARROL_PRODUCTION_DATABASE_HOST: "prod.example",
         POSTGRES_URL: "postgres://user:secret@other.example/app",
       } as NodeJS.ProcessEnv),
     ).toThrow(/DATABASE_URL is unset/);
     expect(() =>
-      assertDevDatabase({ NODE_ENV: "production" } as NodeJS.ProcessEnv),
-    ).toThrow(/DATABASE_URL is unset/);
-    const migrate = readFileSync(path.join(ROOT, "scripts/migrate-if-configured.mjs"), "utf8");
-    expect(migrate).toContain("DATABASE_URL is unset. Refusing to run outside production.");
-    expect(migrate).not.toContain("Skipping prisma migrate");
+      assertDevDatabase({
+        NODE_ENV: "production",
+        VERCEL_ENV: "production",
+      } as NodeJS.ProcessEnv),
+    ).not.toThrow();
+  });
+
+  it("migrate refuses outside production when the production host is unset", () => {
+    const result = spawnSync(process.execPath, ["scripts/migrate-if-configured.mjs"], {
+      cwd: ROOT,
+      encoding: "utf8",
+      env: {
+        PATH: process.env.PATH,
+        VERCEL_ENV: "preview",
+        NODE_ENV: "production",
+        ARROL_PRODUCTION_DATABASE_HOST: "",
+        DATABASE_URL: "postgres://user:secret@dev.example/app",
+      },
+    });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(
+      "ARROL_PRODUCTION_DATABASE_HOST is unset. Refusing to run outside production.",
+    );
   });
 });
 

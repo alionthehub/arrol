@@ -6,18 +6,21 @@ export function databaseHost(url: string | undefined) {
 
 export function assertDevDatabase(env: NodeJS.ProcessEnv = process.env) {
   if (env.VERCEL_ENV === "production") return;
-  const url = env.DATABASE_URL;
-  if (!url?.startsWith("postgres")) {
-    throw new Error(
-      "DATABASE_URL is unset. Refusing to run outside production.",
-    );
-  }
-  const current = databaseHost(url);
   const production = (env.ARROL_PRODUCTION_DATABASE_HOST ?? "")
     .trim()
     .toLowerCase()
     .replace("-pooler", "");
-  if (current && production && current === production) {
+  if (!production) {
+    throw new Error(
+      "ARROL_PRODUCTION_DATABASE_HOST is unset. Refusing to run outside production.",
+    );
+  }
+  const url = env.DATABASE_URL;
+  if (!url?.startsWith("postgres")) {
+    throw new Error("DATABASE_URL is unset. Refusing to run outside production.");
+  }
+  const current = databaseHost(url);
+  if (!current || current === production) {
     throw new Error("Refusing to use the production database outside production.");
   }
 }

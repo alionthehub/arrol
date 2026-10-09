@@ -22,16 +22,6 @@ function loadEnvFile(file) {
 loadEnvFile(".env");
 loadEnvFile(".env.local");
 
-if (process.env.VERCEL_ENV !== "production" && !process.env.DATABASE_URL?.startsWith("postgres")) {
-  console.error("DATABASE_URL is unset. Refusing to run outside production.");
-  process.exit(1);
-}
-
-if (!process.env.DATABASE_URL?.startsWith("postgres")) {
-  console.error("DATABASE_URL is unset. Refusing to migrate.");
-  process.exit(1);
-}
-
 function databaseHost(url) {
   if (!url?.startsWith("postgres") || !url.includes("@")) return "";
   const hostPort = url.split("@")[1]?.split("/")[0]?.split("?")[0] ?? "";
@@ -39,15 +29,30 @@ function databaseHost(url) {
 }
 
 if (process.env.VERCEL_ENV !== "production") {
-  const current = databaseHost(process.env.DATABASE_URL);
   const production = (process.env.ARROL_PRODUCTION_DATABASE_HOST ?? "")
     .trim()
     .toLowerCase()
     .replace("-pooler", "");
-  if (current && production && current === production) {
+  if (!production) {
+    console.error(
+      "ARROL_PRODUCTION_DATABASE_HOST is unset. Refusing to run outside production.",
+    );
+    process.exit(1);
+  }
+  if (!process.env.DATABASE_URL?.startsWith("postgres")) {
+    console.error("DATABASE_URL is unset. Refusing to run outside production.");
+    process.exit(1);
+  }
+  const current = databaseHost(process.env.DATABASE_URL);
+  if (!current || current === production) {
     console.error("Refusing to use the production database outside production.");
     process.exit(1);
   }
+}
+
+if (!process.env.DATABASE_URL?.startsWith("postgres")) {
+  console.error("DATABASE_URL is unset. Refusing to migrate.");
+  process.exit(1);
 }
 
 function withoutPooler(url) {
