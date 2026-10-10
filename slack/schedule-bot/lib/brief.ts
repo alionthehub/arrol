@@ -59,8 +59,10 @@ export function visibleLine(line: string): string {
 }
 
 /**
- * Classify a brief only from a `ref:` line. The last ref line wins.
- * Returns null when no ref line is present.
+ * A `ref:` line decides the type, and the last one wins.
+ * A message with no ref line still matches the last todaybrief,
+ * tomorrowbrief, or weekbrief token, so a short test post is forwarded.
+ * Returns null when neither is present.
  */
 export function prepareBrief(raw: string): PreparedBrief | null {
   const lines = raw.split(/\r?\n/);
@@ -78,7 +80,11 @@ export function prepareBrief(raw: string): PreparedBrief | null {
     kept.push(line);
   }
 
-  if (!kind) return null;
+  if (!kind) {
+    const tokens = raw.match(/\b(todaybrief|tomorrowbrief|weekbrief)\b/g);
+    if (!tokens?.length) return null;
+    kind = tokens[tokens.length - 1] as BriefKind;
+  }
 
   while (kept.length > 0 && kept[0].trim() === "") kept.shift();
   while (kept.length > 0 && kept[kept.length - 1].trim() === "") kept.pop();

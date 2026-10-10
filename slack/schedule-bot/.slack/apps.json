@@ -1,1 +1,10 @@
-{}
+{
+  "apps": {
+    "T0B6LGCL33M": {
+      "app_id": "A0C895WUMAA",
+      "team_domain": "gearboxgurusltd",
+      "team_id": "T0B6LGCL33M"
+    }
+  },
+  "default": "gearboxgurusltd"
+}

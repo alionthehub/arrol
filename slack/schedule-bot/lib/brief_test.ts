@@ -69,19 +69,27 @@ Deno.test("ref lines and Claude footers are removed and the brief text stays", (
   );
 });
 
-Deno.test("messages without a ref line are ignored", () => {
+Deno.test("messages without a brief token are ignored", () => {
   assertEquals(prepareBrief("Nothing in the calendar tomorrow"), null);
   assertEquals(prepareBrief("See you TOMORROW"), null);
-  assertEquals(
-    prepareBrief("Notes mention ref: tomorrowbrief inside a sentence"),
-    null,
-  );
-  assertEquals(
-    prepareBrief(
-      "Full brief: <https://claude.ai/artifact/tomorrowbrief|link>",
-    ),
-    null,
-  );
+});
+
+Deno.test("a short post containing todaybrief is a today brief", () => {
+  const brief = prepareBrief("test todaybrief");
+  assert(brief);
+  assertEquals(brief.kind, "todaybrief");
+  assertEquals(brief.header, "Schedule for today");
+  assertEquals(brief.body, "test todaybrief");
+  assertEquals(brief.message, "*Schedule for today*\ntest todaybrief");
+});
+
+Deno.test("a ref line still beats the word TOMORROW and an earlier token", () => {
+  const brief = prepareBrief("todaybrief\n*TOMORROW · Sunday 11 Oct*\nref: weekbrief");
+  assert(brief);
+  assertEquals(brief.kind, "weekbrief");
+  assertEquals(brief.header, "Schedule for the week");
+  assertEquals(brief.body.includes("todaybrief"), true);
+  assertEquals(brief.body.includes("ref:"), false);
 });
 
 Deno.test("the last ref line decides the type", () => {
