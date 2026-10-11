@@ -6,17 +6,10 @@ export const BRIEF_KINDS = [
 
 export type BriefKind = (typeof BRIEF_KINDS)[number];
 
-export const HEADERS: Record<BriefKind, string> = {
-  todaybrief: "Schedule for today",
-  tomorrowbrief: "Schedule for tomorrow",
-  weekbrief: "Schedule for the week",
-};
-
-const REF_LINE = /^ref:\s*(todaybrief|tomorrowbrief|weekbrief)\s*$/;
-const CLAUDE_FOOTER = /^sent using claude$/i;
-const LABELED_LINK = /<([^|>]+)\|([^>]+)>/g;
-const BARE_LINK = /<https?:\/\/[^>\s]+>/gi;
-const RAW_URL = /https?:\/\/\S+/gi;
+const REF_PHRASE =
+  /[*_~]*ref:\s*(?:todaybrief|tomorrowbrief|weekbrief)[*_~]*/gi;
+const CLAUDE_FOOTER =
+  /[*_~]*sent using[*_~\s]*(?:<@[A-Z0-9]+\|claude>|claude)[*_~]*/gi;
 
 export const SECTION_LIMIT = 3000;
 
@@ -53,70 +46,46 @@ export interface MrkdwnBlock {
   text: { type: "mrkdwn"; text: string };
 }
 
-/** Visible text used only to recognize a ref line or the Claude footer. */
-export function visibleLine(line: string): string {
-  return line.trim().replace(/^[*_~>\s]+|[*_~\s]+$/g, "").trim();
+function stripNoise(line: string): string {
+  REF_PHRASE.lastIndex = 0;
+  CLAUDE_FOOTER.lastIndex = 0;
+  if (!REF_PHRASE.test(line) && !CLAUDE_FOOTER.test(line)) return line;
+  REF_PHRASE.lastIndex = 0;
+  CLAUDE_FOOTER.lastIndex = 0;
+  return line.replace(REF_PHRASE, "").replace(CLAUDE_FOOTER, "").replace(
+    /[ \t]{2,}/g,
+    " ",
+  ).trim();
 }
 
 /**
- * A `ref:` line decides the type, and the last one wins.
- * A message with no ref line still matches the last todaybrief,
- * tomorrowbrief, or weekbrief token, so a short test post is forwarded.
- * Returns null when neither is present.
+ * The last todaybrief, tomorrowbrief, or weekbrief token decides the type.
+ * The DM is the brief itself: no added header. Ref text and Claude footers
+ * are removed wherever they sit, including on a shared line.
  */
 export function prepareBrief(raw: string): PreparedBrief | null {
-  const lines = raw.split(/\r?\n/);
-  let kind: BriefKind | null = null;
+  const tokens = raw.match(/\b(todaybrief|tomorrowbrief|weekbrief)\b/gi);
+  if (!tokens?.length) return null;
+  const kind = tokens[tokens.length - 1].toLowerCase() as BriefKind;
+
   const kept: string[] = [];
-
-  for (const line of lines) {
-    const visible = visibleLine(line);
-    const ref = REF_LINE.exec(visible);
-    if (ref) {
-      kind = ref[1] as BriefKind;
-      continue;
-    }
-    if (CLAUDE_FOOTER.test(visible)) continue;
-    kept.push(line);
+  for (const line of raw.split(/\r?\n/)) {
+    const cleaned = stripNoise(line);
+    if (line.trim() !== "" && cleaned.trim() === "") continue;
+    kept.push(cleaned);
   }
-
-  if (!kind) {
-    const tokens = raw.match(/\b(todaybrief|tomorrowbrief|weekbrief)\b/g);
-    if (!tokens?.length) return null;
-    kind = tokens[tokens.length - 1] as BriefKind;
-  }
-
-  while (kept.length > 0 && kept[0].trim() === "") kept.shift();
   while (kept.length > 0 && kept[kept.length - 1].trim() === "") kept.pop();
 
-  const header = HEADERS[kind];
   const body = kept.join("\n");
-  const message = body.length > 0 ? `*${header}*\n${body}` : `*${header}*`;
+  const content = body.split(/\r?\n/).filter((line) => line.trim() !== "");
+  const header = content[0] ?? "";
   return {
     kind,
     header,
     body,
-    message,
-    notification: notificationText(header, body),
+    message: body,
+    notification: content.slice(0, 2).join("\n"),
   };
-}
-
-/** Lock-screen text: plain header plus the first two lines that still contain words. */
-export function notificationText(header: string, body: string): string {
-  const picked: string[] = [];
-  for (const line of body.split(/\r?\n/)) {
-    const cleaned = line
-      .replace(LABELED_LINK, "$2")
-      .replace(BARE_LINK, "")
-      .replace(RAW_URL, "")
-      .replace(/[*_~]/g, "")
-      .replace(/\s+/g, " ")
-      .trim();
-    if (!cleaned) continue;
-    picked.push(cleaned);
-    if (picked.length === 2) break;
-  }
-  return [header, ...picked].join("\n");
 }
 
 export function messageBlocks(message: string): MrkdwnBlock[] {

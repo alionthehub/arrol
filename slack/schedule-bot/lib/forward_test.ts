@@ -1,6 +1,14 @@
 import { assertEquals } from "./assert.ts";
 import { FORWARDED_BRIEFS_DATASTORE, OWNER_USER_ID } from "./constants.ts";
-import { forwardBrief, type ForwardClient } from "./forward.ts";
+import {
+  DEBOUNCE_MS,
+  forwardBrief,
+  type ForwardClient,
+  type ForwardOptions,
+  type HistoryMessage,
+} from "./forward.ts";
+
+const immediate: ForwardOptions = { sleep: () => Promise.resolve() };
 
 const BRIEF = [
   "*TOMORROW · Sunday 11 Oct*",
@@ -45,28 +53,29 @@ function harness(historyText = ""): {
       },
     },
     conversations: {
-      history: () => {
+      history: (args) => {
         historyCalls += 1;
-        return Promise.resolve({
-          ok: true,
-          messages: [{
-            ts: "111.222",
-            text: historyText,
-            blocks: historyText ? undefined : [
-              {
-                type: "section",
-                text: {
-                  type: "mrkdwn",
-                  text: "*TODAY · Saturday 10 Oct*\nGarage\nref: todaybrief",
-                },
+        const source: HistoryMessage = {
+          ts: "111.222",
+          text: historyText,
+          blocks: historyText ? undefined : [
+            {
+              type: "section",
+              text: {
+                type: "mrkdwn",
+                text: "*TODAY · Saturday 10 Oct*\nGarage\nref: todaybrief",
               },
-              {
-                type: "context",
-                elements: [{ type: "mrkdwn", text: "Sent using Claude" }],
-              },
-            ],
-          }],
-        });
+            },
+            {
+              type: "context",
+              elements: [{ type: "mrkdwn", text: "Sent using Claude" }],
+            },
+          ],
+        };
+        if (args.limit === 1) {
+          return Promise.resolve({ ok: true, messages: [source] });
+        }
+        return Promise.resolve({ ok: true, messages: [] });
       },
     },
     chat: {
@@ -100,13 +109,14 @@ Deno.test("each ref type is forwarded once with its header", async () => {
       channel_id: "C0C956MS6Q0",
       message_ts: `1.${ref}`,
       text: `Line one\nLine two\nref: ${ref}\nSent using Claude`,
-    }, (line) => logs.push(line));
+    }, (line) => logs.push(line), immediate);
     assertEquals(result.ok, true);
     assertEquals(result.type, ref);
     assertEquals(posts.length, 1);
     assertEquals(posts[0].channel, OWNER_USER_ID);
-    assertEquals(posts[0].text.startsWith(header), true);
-    assertEquals(posts[0].blocks[0].text.text.startsWith(`*${header}*`), true);
+    assertEquals(posts[0].text, "Line one\nLine two");
+    assertEquals(posts[0].blocks[0].text.text, "Line one\nLine two");
+    assertEquals(posts[0].blocks[0].text.text.includes(header), false);
     assertEquals(posts[0].blocks[0].text.text.includes("ref:"), false);
     assertEquals(logs.some((line) => line.includes("Line one")), false);
   }
@@ -122,10 +132,11 @@ Deno.test("Sunday copy containing TOMORROW with ref weekbrief is only the week",
       "Week plan",
       "ref: weekbrief",
     ].join("\n"),
-  }, () => {});
+  }, () => {}, immediate);
   assertEquals(result.type, "weekbrief");
   assertEquals(posts.length, 1);
-  assertEquals(posts[0].text.startsWith("Schedule for the week"), true);
+  assertEquals(posts[0].text.startsWith("*TOMORROW · Sunday 11 Oct*"), true);
+  assertEquals(posts[0].text.includes("Schedule for the week"), false);
   assertEquals(posts[0].text.includes("Schedule for tomorrow"), false);
   assertEquals(
     posts[0].blocks[0].text.text.includes("*TOMORROW · Sunday 11 Oct*"),
@@ -143,7 +154,7 @@ Deno.test("messages without a ref line are not forwarded", async () => {
     channel_id: "C0C956MS6Q0",
     message_ts: "300.1",
     text: "Nothing in the calendar tomorrow\nSent using Claude",
-  }, (line) => logs.push(line));
+  }, (line) => logs.push(line), immediate);
   assertEquals(result.ok, true);
   assertEquals(result.type, "ignored");
   assertEquals(posts.length, 0);
@@ -165,8 +176,8 @@ Deno.test("a message timestamp is forwarded only once", async () => {
     message_ts: "400.1",
     text: BRIEF,
   };
-  const first = await forwardBrief(client, inputs, () => {});
-  const second = await forwardBrief(client, inputs, () => {});
+  const first = await forwardBrief(client, inputs, () => {}, immediate);
+  const second = await forwardBrief(client, inputs, () => {}, immediate);
   assertEquals(first.ok, true);
   assertEquals(second.ok, true);
   assertEquals(posts.length, 1);
@@ -187,13 +198,13 @@ Deno.test("empty trigger text is loaded from conversations.history", async () =>
     channel_id: "C0C956MS6Q0",
     message_ts: "111.222",
     text: "",
-  }, (line) => box.logs.push(line));
+  }, (line) => box.logs.push(line), immediate);
   assertEquals(result.ok, true);
   assertEquals(result.type, "todaybrief");
-  assertEquals(box.historyCalls, 1);
+  assertEquals(box.historyCalls, 2);
   assertEquals(box.posts.length, 1);
   assertEquals(box.posts[0].channel, OWNER_USER_ID);
-  assertEquals(box.posts[0].text.startsWith("Schedule for today"), true);
+  assertEquals(box.posts[0].text.startsWith("*TODAY · Saturday 10 Oct*"), true);
   assertEquals(box.posts[0].blocks[0].text.text.includes("Garage"), true);
   assertEquals(box.posts[0].blocks[0].text.text.includes("ref:"), false);
   assertEquals(box.logs.some((line) => line.includes("Garage")), false);
@@ -214,12 +225,94 @@ Deno.test("a failed send drops the claim so a later attempt can send", async () 
     message_ts: "500.1",
     text: "Standup\nref: todaybrief",
   };
-  const failed = await forwardBrief(box.client, inputs, () => {});
+  const failed = await forwardBrief(box.client, inputs, () => {}, immediate);
   assertEquals(failed.ok, false);
   assertEquals(box.store.size, 0);
   fail = false;
-  const retried = await forwardBrief(box.client, inputs, () => {});
+  const retried = await forwardBrief(box.client, inputs, () => {}, immediate);
   assertEquals(retried.ok, true);
   assertEquals(box.posts.length, 2);
   assertEquals(box.store.size, 1);
+});
+
+function channel(messages: HistoryMessage[]): {
+  client: ForwardClient;
+  posts: Posted[];
+  sleeps: number[];
+} {
+  const store = new Map<string, { id: string; kind: string }>();
+  const posts: Posted[] = [];
+  const sleeps: number[] = [];
+  const client: ForwardClient = {
+    apps: {
+      datastore: {
+        get: ({ id }) => {
+          const item = store.get(id);
+          return Promise.resolve({ ok: true, item: item ?? {} });
+        },
+        put: ({ item }) => {
+          store.set(item.id, item);
+          return Promise.resolve({ ok: true });
+        },
+        delete: ({ id }) => {
+          store.delete(id);
+          return Promise.resolve({ ok: true });
+        },
+      },
+    },
+    conversations: {
+      history: () => Promise.resolve({ ok: true, messages }),
+    },
+    chat: {
+      postMessage: (args) => {
+        posts.push(args);
+        return Promise.resolve({ ok: true });
+      },
+    },
+  };
+  return { client, posts, sleeps };
+}
+
+Deno.test("two posts 20s apart forward only the second", async () => {
+  const older = "1700000000.000100";
+  const newer = "1700000020.000100";
+  const messages: HistoryMessage[] = [
+    { ts: newer, text: "Second version\nref: tomorrowbrief" },
+    { ts: older, text: "First version\nref: tomorrowbrief" },
+  ];
+  const box = channel(messages);
+  const sleep = (ms: number) => {
+    box.sleeps.push(ms);
+    return Promise.resolve();
+  };
+  const first = await forwardBrief(box.client, {
+    channel_id: "C0C956MS6Q0",
+    message_ts: older,
+    text: "First version\nref: tomorrowbrief",
+  }, () => {}, { sleep });
+  const second = await forwardBrief(box.client, {
+    channel_id: "C0C956MS6Q0",
+    message_ts: newer,
+    text: "Second version\nref: tomorrowbrief",
+  }, () => {}, { sleep });
+  assertEquals(first.ok, true);
+  assertEquals(second.ok, true);
+  assertEquals(box.sleeps, [DEBOUNCE_MS, DEBOUNCE_MS]);
+  assertEquals(box.posts.length, 1);
+  assertEquals(box.posts[0].text, "Second version");
+  assertEquals(box.posts[0].blocks[0].text.text, "Second version");
+});
+
+Deno.test("a single post is forwarded after the debounce", async () => {
+  const ts = "1700000000.000100";
+  const box = channel([{ ts, text: "Only version\nref: todaybrief" }]);
+  const result = await forwardBrief(box.client, {
+    channel_id: "C0C956MS6Q0",
+    message_ts: ts,
+    text: "Only version\nref: todaybrief",
+  }, () => {}, immediate);
+  assertEquals(result.ok, true);
+  assertEquals(result.type, "todaybrief");
+  assertEquals(box.posts.length, 1);
+  assertEquals(box.posts[0].blocks[0].text.text, "Only version");
 });

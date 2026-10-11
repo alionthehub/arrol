@@ -15,7 +15,7 @@ const TOMORROW = [
   "_Sent using Claude_",
 ].join("\n");
 
-Deno.test("today, tomorrow, and week refs choose their own headers", () => {
+Deno.test("today, tomorrow, and week refs choose their type without an added header", () => {
   const today = prepareBrief("Standup at 9\nref: todaybrief");
   const tomorrow = prepareBrief(TOMORROW);
   const week = prepareBrief("Monday through Friday\nref: weekbrief");
@@ -23,12 +23,12 @@ Deno.test("today, tomorrow, and week refs choose their own headers", () => {
   assert(today);
   assert(tomorrow);
   assert(week);
-  assertEquals(today.header, "Schedule for today");
-  assertEquals(tomorrow.header, "Schedule for tomorrow");
-  assertEquals(week.header, "Schedule for the week");
-  assertEquals(today.message.startsWith("*Schedule for today*\n"), true);
+  assertEquals(today.kind, "todaybrief");
   assertEquals(tomorrow.kind, "tomorrowbrief");
   assertEquals(week.kind, "weekbrief");
+  assertEquals(today.message, "Standup at 9");
+  assertEquals(today.header, "Standup at 9");
+  assertEquals(today.message.includes("Schedule for today"), false);
 });
 
 Deno.test("a Sunday brief that says TOMORROW stays a week brief", () => {
@@ -42,7 +42,8 @@ Deno.test("a Sunday brief that says TOMORROW stays a week brief", () => {
 
   assert(brief);
   assertEquals(brief.kind, "weekbrief");
-  assertEquals(brief.header, "Schedule for the week");
+  assertEquals(brief.header, "*TOMORROW · Sunday 11 Oct*");
+  assertEquals(brief.message, brief.body);
   assertEquals(brief.message.includes("Schedule for tomorrow"), false);
   assertEquals(brief.body.includes("*TOMORROW · Sunday 11 Oct*"), true);
   assertEquals(brief.body.includes("The week ahead"), true);
@@ -63,10 +64,8 @@ Deno.test("ref lines and Claude footers are removed and the brief text stays", (
       "Full brief: <https://claude.ai/artifact/XXXX|claude.ai/artifact/…>",
     ].join("\n"),
   );
-  assertEquals(
-    brief.message,
-    `*Schedule for tomorrow*\n${brief.body}`,
-  );
+  assertEquals(brief.message, brief.body);
+  assertEquals(brief.message.startsWith("*TOMORROW · Sunday 11 Oct*"), true);
 });
 
 Deno.test("messages without a brief token are ignored", () => {
@@ -78,16 +77,16 @@ Deno.test("a short post containing todaybrief is a today brief", () => {
   const brief = prepareBrief("test todaybrief");
   assert(brief);
   assertEquals(brief.kind, "todaybrief");
-  assertEquals(brief.header, "Schedule for today");
+  assertEquals(brief.header, "test todaybrief");
   assertEquals(brief.body, "test todaybrief");
-  assertEquals(brief.message, "*Schedule for today*\ntest todaybrief");
+  assertEquals(brief.message, "test todaybrief");
 });
 
 Deno.test("a ref line still beats the word TOMORROW and an earlier token", () => {
   const brief = prepareBrief("todaybrief\n*TOMORROW · Sunday 11 Oct*\nref: weekbrief");
   assert(brief);
   assertEquals(brief.kind, "weekbrief");
-  assertEquals(brief.header, "Schedule for the week");
+  assertEquals(brief.header, "todaybrief");
   assertEquals(brief.body.includes("todaybrief"), true);
   assertEquals(brief.body.includes("ref:"), false);
 });
@@ -99,36 +98,66 @@ Deno.test("the last ref line decides the type", () => {
   assertEquals(brief.body.includes("ref:"), false);
 });
 
-Deno.test("notification text is the header plus two content lines and no raw URL", () => {
+Deno.test("notification text is the brief's first line and the next content line", () => {
   const brief = prepareBrief(TOMORROW);
   assert(brief);
   assertEquals(
     brief.notification,
     [
-      "Schedule for tomorrow",
-      "TOMORROW · Sunday 11 Oct",
+      "*TOMORROW · Sunday 11 Oct*",
       "Nothing in the calendar tomorrow",
     ].join("\n"),
   );
-  assertEquals(brief.notification.includes("http"), false);
+  assertEquals(brief.message.startsWith(brief.header), true);
+});
 
-  const linksFirst = prepareBrief([
-    "<https://claude.ai/artifact/XXXX|https://claude.ai/artifact/XXXX>",
-    "https://example.com/only-a-url",
-    "Standup at 9",
-    "Design review",
-    "ref: todaybrief",
-  ].join("\n"));
-  assert(linksFirst);
-  assertEquals(linksFirst.notification.includes("http"), false);
+const MONDAY = [
+  "📅 *Schedule for tomorrow · Monday 12 Oct*",
+  "Nothing in the calendar tomorrow.",
+  "",
+  "*Clashes:* None",
+  "*Unanswered invites:* None",
+  "",
+  "ref: tomorrowbrief",
+  "*Sent using* <@U0C95E48K96|Claude>",
+].join("\n");
+
+Deno.test("the DM is the brief, with no extra header, ref, or Claude footer", () => {
+  const brief = prepareBrief(MONDAY);
+  assert(brief);
+  assertEquals(brief.kind, "tomorrowbrief");
   assertEquals(
-    linksFirst.notification,
+    brief.message,
     [
-      "Schedule for today",
-      "Standup at 9",
-      "Design review",
+      "📅 *Schedule for tomorrow · Monday 12 Oct*",
+      "Nothing in the calendar tomorrow.",
+      "",
+      "*Clashes:* None",
+      "*Unanswered invites:* None",
     ].join("\n"),
   );
+  assertEquals(
+    brief.notification,
+    [
+      "📅 *Schedule for tomorrow · Monday 12 Oct*",
+      "Nothing in the calendar tomorrow.",
+    ].join("\n"),
+  );
+  assertEquals(brief.message.includes("ref:"), false);
+  assertEquals(brief.message.toLowerCase().includes("sent using"), false);
+  assertEquals(brief.message.includes("<@"), false);
+});
+
+Deno.test("ref text and a Claude footer are removed when joined on one line", () => {
+  const brief = prepareBrief(
+    "Plan *ref: tomorrowbrief* *Sent using* <@U0C95E48K96|Claude>",
+  );
+  assert(brief);
+  assertEquals(brief.kind, "tomorrowbrief");
+  assertEquals(brief.message, "Plan");
+  assertEquals(brief.message.includes("ref:"), false);
+  assertEquals(brief.message.toLowerCase().includes("sent using"), false);
+  assertEquals(brief.message.includes("<@"), false);
 });
 
 Deno.test("empty message text is rebuilt from blocks", () => {
