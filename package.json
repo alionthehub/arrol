@@ -4,12 +4,18 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "node scripts/check-secrets.mjs && node scripts/prisma-generate.mjs && node scripts/migrate-if-configured.mjs && next build && node scripts/check-client-bundle.mjs",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "typecheck": "node scripts/prisma-generate.mjs && tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
+    "@prisma/client": "^6.19.3",
+    "@simplewebauthn/browser": "^14.0.0",
+    "@simplewebauthn/server": "^14.0.3",
     "next": "16.3.5",
+    "otpauth": "^9.5.2",
     "pg": "^8.23.0",
     "react": "19.2.8",
     "react-dom": "19.2.8"
@@ -22,7 +28,15 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.3.5",
+    "prisma": "^6.19.3",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^3.2.7"
+  },
+  "allowScripts": {
+    "prisma@6.19.3": true,
+    "@prisma/client@6.19.3": true,
+    "@prisma/engines@6.19.3": true,
+    "esbuild@0.28.2": true
   }
 }

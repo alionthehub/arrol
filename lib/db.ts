@@ -1,8 +1,10 @@
 import { Pool, type QueryResult, type QueryResultRow } from "pg";
+import { assertDevDatabase } from "@/lib/security/database-guard";
 
 const globalForDb = globalThis as unknown as { pgPool?: Pool };
 
 function getDatabaseUrl() {
+  assertDevDatabase();
   const url = process.env.DATABASE_URL;
   if (!url) {
     throw new Error("DATABASE_URL is required");

@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { TIMEZONES } from "@/lib/timezones";
 import { TASK_KEYS, isTaskKey, type TaskKey } from "@/lib/tasks";
 import { updateSettings, type AppSettings } from "@/lib/settings";
+import { writeAudit } from "@/lib/security/audit-log";
 import { clearSessionCookie, requireSessionAction, writeCrtCookie } from "@/lib/session";
 
 export type SettingsFormState = {
@@ -18,7 +19,7 @@ export async function saveSettings(
   _prev: SettingsFormState,
   formData: FormData,
 ): Promise<SettingsFormState> {
-  await requireSessionAction();
+  const session = await requireSessionAction();
 
   const display_name = String(formData.get("display_name") ?? "").trim();
   const timezone = String(formData.get("timezone") ?? "").trim();
@@ -57,6 +58,12 @@ export async function saveSettings(
       task_models,
     });
     await writeCrtCookie(crt_effects);
+    await writeAudit({
+      action: "settings.update",
+      outcome: "success",
+      source: "web",
+      actor: session.userId,
+    });
   } catch (error) {
     return {
       status: "error",
