@@ -8,8 +8,7 @@ export type BriefKind = (typeof BRIEF_KINDS)[number];
 
 const REF_PHRASE =
   /[*_~]*ref:\s*(?:todaybrief|tomorrowbrief|weekbrief)[*_~]*/gi;
-const CLAUDE_FOOTER =
-  /[*_~]*sent using[*_~\s]*(?:<@[A-Z0-9]+\|claude>|claude)[*_~]*/gi;
+const CLAUDE_FOOTER = /[*_~]*sent using[\s\S]*$/i;
 
 export const SECTION_LIMIT = 3000;
 
@@ -48,10 +47,8 @@ export interface MrkdwnBlock {
 
 function stripNoise(line: string): string {
   REF_PHRASE.lastIndex = 0;
-  CLAUDE_FOOTER.lastIndex = 0;
-  if (!REF_PHRASE.test(line) && !CLAUDE_FOOTER.test(line)) return line;
+  if (!REF_PHRASE.test(line) && !/sent using/i.test(line)) return line;
   REF_PHRASE.lastIndex = 0;
-  CLAUDE_FOOTER.lastIndex = 0;
   return line.replace(REF_PHRASE, "").replace(CLAUDE_FOOTER, "").replace(
     /[ \t]{2,}/g,
     " ",
@@ -84,7 +81,7 @@ export function prepareBrief(raw: string): PreparedBrief | null {
     header,
     body,
     message: body,
-    notification: content.slice(0, 2).join("\n"),
+    notification: content.slice(0, 2).join("\n").replaceAll("*", ""),
   };
 }
 
@@ -107,6 +104,7 @@ export function messageBlocks(message: string): MrkdwnBlock[] {
 export function textFromMessage(message: {
   text?: string;
   blocks?: SlackBlock[];
+  attachments?: unknown;
 }): string {
   if (typeof message.text === "string" && message.text.trim().length > 0) {
     return message.text;
@@ -123,11 +121,31 @@ function textOf(value: string | SlackTextObject | undefined): string {
   return value.text ?? "";
 }
 
+function mentionsSentUsing(value: string): boolean {
+  return /sent using/i.test(value);
+}
+
+function elementMentionsSentUsing(element: SlackElement): boolean {
+  if (typeof element.text === "string" && mentionsSentUsing(element.text)) {
+    return true;
+  }
+  return (element.elements ?? []).some(elementMentionsSentUsing);
+}
+
+function blockMentionsSentUsing(block: SlackBlock): boolean {
+  if (mentionsSentUsing(textOf(block.text))) return true;
+  if ((block.fields ?? []).some((field) => mentionsSentUsing(textOf(field)))) {
+    return true;
+  }
+  return (block.elements ?? []).some(elementMentionsSentUsing);
+}
+
 function blockText(block: SlackBlock): string {
+  if (block.type === "context" && blockMentionsSentUsing(block)) return "";
   if (block.type === "rich_text") {
-    return (block.elements ?? []).map(richElement).filter((part) =>
-      part.length > 0
-    ).join("\n");
+    return (block.elements ?? []).filter((element) =>
+      !elementMentionsSentUsing(element)
+    ).map(richElement).filter((part) => part.length > 0).join("\n");
   }
 
   const parts: string[] = [];
@@ -139,7 +157,11 @@ function blockText(block: SlackBlock): string {
   }
   if (parts.length > 0) return parts.join("\n");
   if (block.elements?.length) {
-    return block.elements.map(richElement).filter((part) => part.length > 0)
+    return block.elements.filter((element) =>
+      !elementMentionsSentUsing(element)
+    )
+      .map(richElement)
+      .filter((part) => part.length > 0)
       .join("\n");
   }
   return "";

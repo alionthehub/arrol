@@ -17,7 +17,7 @@ const BRIEF = [
 interface Posted {
   channel: string;
   text: string;
-  blocks: { text: { text: string } }[];
+  blocks: { type: string; text: { text: string } }[];
 }
 
 function harness(historyText = ""): {
@@ -64,7 +64,7 @@ function harness(historyText = ""): {
             },
             {
               type: "context",
-              elements: [{ type: "mrkdwn", text: "Sent using Claude" }],
+              elements: [{ type: "mrkdwn", text: "Sent using <@U0C95E48K96>" }],
             },
           ],
         };
@@ -131,7 +131,8 @@ Deno.test("Sunday copy containing TOMORROW with ref weekbrief is only the week",
   }, () => {});
   assertEquals(result.type, "weekbrief");
   assertEquals(posts.length, 1);
-  assertEquals(posts[0].text.startsWith("*TOMORROW · Sunday 11 Oct*"), true);
+  assertEquals(posts[0].text.startsWith("TOMORROW · Sunday 11 Oct"), true);
+  assertEquals(posts[0].text.includes("*"), false);
   assertEquals(posts[0].text.includes("Schedule for the week"), false);
   assertEquals(posts[0].text.includes("Schedule for tomorrow"), false);
   assertEquals(
@@ -200,7 +201,15 @@ Deno.test("empty trigger text is loaded from conversations.history", async () =>
   assertEquals(box.historyCalls, 2);
   assertEquals(box.posts.length, 1);
   assertEquals(box.posts[0].channel, OWNER_USER_ID);
-  assertEquals(box.posts[0].text.startsWith("*TODAY · Saturday 10 Oct*"), true);
+  assertEquals(box.posts[0].text.startsWith("TODAY · Saturday 10 Oct"), true);
+  assertEquals(box.posts[0].text.includes("*"), false);
+  assertEquals(box.posts[0].text.toLowerCase().includes("sent using"), false);
+  assertEquals(
+    box.posts.every((post) =>
+      post.blocks.every((block) => block.type === "section")
+    ),
+    true,
+  );
   assertEquals(box.posts[0].blocks[0].text.text.includes("Garage"), true);
   assertEquals(box.posts[0].blocks[0].text.text.includes("ref:"), false);
   assertEquals(box.logs.some((line) => line.includes("Garage")), false);

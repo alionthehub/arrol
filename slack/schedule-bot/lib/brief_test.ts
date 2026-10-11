@@ -83,7 +83,9 @@ Deno.test("a short post containing todaybrief is a today brief", () => {
 });
 
 Deno.test("a ref line still beats the word TOMORROW and an earlier token", () => {
-  const brief = prepareBrief("todaybrief\n*TOMORROW · Sunday 11 Oct*\nref: weekbrief");
+  const brief = prepareBrief(
+    "todaybrief\n*TOMORROW · Sunday 11 Oct*\nref: weekbrief",
+  );
   assert(brief);
   assertEquals(brief.kind, "weekbrief");
   assertEquals(brief.header, "todaybrief");
@@ -104,7 +106,7 @@ Deno.test("notification text is the brief's first line and the next content line
   assertEquals(
     brief.notification,
     [
-      "*TOMORROW · Sunday 11 Oct*",
+      "TOMORROW · Sunday 11 Oct",
       "Nothing in the calendar tomorrow",
     ].join("\n"),
   );
@@ -139,10 +141,11 @@ Deno.test("the DM is the brief, with no extra header, ref, or Claude footer", ()
   assertEquals(
     brief.notification,
     [
-      "📅 *Schedule for tomorrow · Monday 12 Oct*",
+      "📅 Schedule for tomorrow · Monday 12 Oct",
       "Nothing in the calendar tomorrow.",
     ].join("\n"),
   );
+  assertEquals(brief.notification.includes("*"), false);
   assertEquals(brief.message.includes("ref:"), false);
   assertEquals(brief.message.toLowerCase().includes("sent using"), false);
   assertEquals(brief.message.includes("<@"), false);
@@ -158,6 +161,60 @@ Deno.test("ref text and a Claude footer are removed when joined on one line", ()
   assertEquals(brief.message.includes("ref:"), false);
   assertEquals(brief.message.toLowerCase().includes("sent using"), false);
   assertEquals(brief.message.includes("<@"), false);
+});
+
+Deno.test("a context-block Claude footer is not copied into the DM", () => {
+  const payload = {
+    text: [
+      "📅 *Schedule for tomorrow · Monday 12 Oct*",
+      "Nothing in the calendar tomorrow.",
+      "",
+      "*Clashes:* None",
+      "*Unanswered invites:* None",
+      "",
+      "ref: tomorrowbrief",
+    ].join("\n"),
+    blocks: [
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text:
+            "📅 *Schedule for tomorrow · Monday 12 Oct*\nNothing in the calendar tomorrow.",
+        },
+      },
+      {
+        type: "context",
+        elements: [
+          { type: "mrkdwn", text: "Sent using <@U0C95E48K96>" },
+        ],
+      },
+    ],
+    attachments: [
+      {
+        blocks: [
+          {
+            type: "context",
+            elements: [
+              { type: "mrkdwn", text: "Sent using <@U0C95E48K96|Claude>" },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const brief = prepareBrief(textFromMessage(payload));
+  assert(brief);
+  assertEquals(brief.kind, "tomorrowbrief");
+  assertEquals(brief.message.includes("Sent using"), false);
+  assertEquals(brief.message.includes("<@"), false);
+  assertEquals(brief.notification.includes("*"), false);
+  const blocks = messageBlocks(brief.message);
+  assertEquals(blocks.every((block) => block.type === "section"), true);
+  assertEquals(
+    blocks.some((block) => /sent using/i.test(block.text.text)),
+    false,
+  );
 });
 
 Deno.test("empty message text is rebuilt from blocks", () => {
@@ -181,7 +238,7 @@ Deno.test("empty message text is rebuilt from blocks", () => {
       },
       {
         type: "context",
-        elements: [{ type: "mrkdwn", text: "_Sent using Claude_" }],
+        elements: [{ type: "mrkdwn", text: "Sent using <@U0C95E48K96>" }],
       },
     ],
   });
@@ -191,7 +248,8 @@ Deno.test("empty message text is rebuilt from blocks", () => {
   assertEquals(brief.body.includes("Shop time"), true);
   assertEquals(brief.body.includes("TODAY · Saturday 10 Oct"), true);
   assertEquals(brief.body.includes("ref:"), false);
-  assertEquals(brief.body.toLowerCase().includes("sent using claude"), false);
+  assertEquals(brief.body.toLowerCase().includes("sent using"), false);
+  assertEquals(brief.body.includes("<@"), false);
 });
 
 Deno.test("long briefs are split into section blocks without dropping text", () => {
