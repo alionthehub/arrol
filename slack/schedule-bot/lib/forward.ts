@@ -63,16 +63,7 @@ export interface ForwardResult {
   type: string;
 }
 
-export const DEBOUNCE_MS = 60_000;
 export const RECENT_HISTORY_LIMIT = 10;
-
-export interface ForwardOptions {
-  sleep?: (ms: number) => Promise<void>;
-}
-
-function wait(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 function isNewer(candidate: string, current: string): boolean {
   const left = Number(candidate);
@@ -84,7 +75,6 @@ export async function forwardBrief(
   client: ForwardClient,
   inputs: ForwardInputs,
   log: (line: string) => void = console.log,
-  options: ForwardOptions = {},
 ): Promise<ForwardResult> {
   const ts = inputs.message_ts;
   const finish = (ok: boolean, type: string): ForwardResult => {
@@ -116,15 +106,6 @@ export async function forwardBrief(
   });
   if (!existing.ok) return finish(false, brief.kind);
   if (existing.item?.id) return finish(true, brief.kind);
-
-  await (options.sleep ?? wait)(DEBOUNCE_MS);
-
-  const again = await client.apps.datastore.get({
-    datastore: FORWARDED_BRIEFS_DATASTORE,
-    id: ts,
-  });
-  if (!again.ok) return finish(false, brief.kind);
-  if (again.item?.id) return finish(true, brief.kind);
 
   const recent = await client.conversations.history({
     channel: inputs.channel_id,

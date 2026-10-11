@@ -15,6 +15,12 @@ export const ForwardBriefWorkflow = DefineWorkflow({
   },
 });
 
+// A custom function is killed at 60s. Waiting inside it never reaches the DM.
+// This step pauses the workflow for one minute, then the function runs.
+ForwardBriefWorkflow.addStep(Schema.slack.functions.Delay, {
+  minutes_to_delay: 1,
+});
+
 ForwardBriefWorkflow.addStep(ForwardBriefFunction, {
   channel_id: ForwardBriefWorkflow.inputs.channel_id,
   message_ts: ForwardBriefWorkflow.inputs.message_ts,
