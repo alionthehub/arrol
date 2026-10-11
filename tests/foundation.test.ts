@@ -292,7 +292,7 @@ describe("development database guard", () => {
         VERCEL_ENV: "preview",
         DATABASE_URL: "postgres://user:secret@dev.example/app",
         ARROL_PRODUCTION_DATABASE_HOST: "prod.example",
-      } as NodeJS.ProcessEnv),
+      } as unknown as NodeJS.ProcessEnv),
     ).not.toThrow();
     expect(() =>
       assertDevDatabase({
